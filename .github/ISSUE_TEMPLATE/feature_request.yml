@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose a player/system capability grounded in an observable episode.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: episode
+    attributes:
+      label: Player/system episode
+      description: Describe the starting situation, player choice, simulated consequence, and terminal outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: discovery
+    attributes:
+      label: Natural discovery
+      description: How does the concept emerge from consequences rather than tutorial instruction?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Smallest required behavior
+      description: What domain or simulation behavior is actually missing?
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation path
+      description: What headless outcome and representative scenario would prove it?
+    validations:
+      required: true

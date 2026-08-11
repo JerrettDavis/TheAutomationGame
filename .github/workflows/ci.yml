@@ -1,0 +1,65 @@
+name: build-test-headless
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          lfs: true
+          persist-credentials: false
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            Directory.Packages.props
+            NuGet.config
+            global.json
+      - name: Restore
+        run: dotnet restore TheAutomationGame.sln
+      - name: Verify formatting
+        run: dotnet format TheAutomationGame.sln --verify-no-changes --no-restore
+      - name: Build
+        run: dotnet build TheAutomationGame.sln -c Release --no-restore
+      - name: Test
+        run: dotnet test TheAutomationGame.sln -c Release --no-build
+      - name: Validate PowerShell tooling syntax
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($script in Get-ChildItem tools -Filter *.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              $errors | ForEach-Object { Write-Error "$($script.Name): $_" -ErrorAction Continue }
+            }
+          }
+          if ($failed) { throw 'PowerShell syntax validation failed.' }
+      - name: Validate default headless episode
+        shell: pwsh
+        run: |
+          $output = dotnet run --project src/Automation.Headless -c Release --no-build -- --ticks 300
+          $text = $output -join "`n"
+          if ($text -notmatch 'tutorial=EpisodeComplete') { throw 'Default headless episode did not complete.' }
+          if ($text -notmatch 'shiftTrial status=Passed checks=3/3') { throw 'Default reliability window did not pass.' }
+      - name: Validate 100k synthetic population
+        shell: pwsh
+        run: |
+          $output = dotnet run --project src/Automation.Headless -c Release --no-build -- --benchmark-actors 100000 --benchmark-ticks 100
+          if (($output -join "`n") -notmatch 'transitions=10000000') { throw 'Synthetic population benchmark did not complete.' }

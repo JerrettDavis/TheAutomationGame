@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+</PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Automation.Content\Automation.Content.csproj" />
+    <ProjectReference Include="..\Automation.Domain\Automation.Domain.csproj" />
+    <ProjectReference Include="..\Automation.Simulation\Automation.Simulation.csproj" />
+    <ProjectReference Include="..\Automation.Tools\Automation.Tools.csproj" />
+  </ItemGroup>
+
+</Project>

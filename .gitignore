@@ -1,0 +1,49 @@
+# .NET / Stride build output
+!AGENTS.md
+[Bb]in/
+[Oo]bj/
+out/
+publish/
+*.nupkg
+*.snupkg
+
+# Test, coverage, benchmark, and local playtest output
+TestResults/
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+*.trx
+BenchmarkDotNet.Artifacts/
+artifacts/
+
+# IDE and editor state
+.vs/
+.idea/
+.vscode/
+_ReSharper*/
+*.DotSettings.user
+*.user
+*.suo
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+secrets.json
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Logs, temporary files, and local backups
+*.log
+*.tmp
+*.bak
+*.swp
+*~

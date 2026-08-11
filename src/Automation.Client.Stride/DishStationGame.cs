@@ -1,0 +1,1922 @@
+using Automation.Content;
+using Automation.Domain;
+using Automation.Persistence;
+using Automation.Simulation;
+using Automation.Tools;
+using System.Text.Json;
+using Stride.Core.Mathematics;
+using Stride.Engine;
+using Stride.Games;
+using Stride.Graphics;
+using Stride.Input;
+
+namespace Automation.Client.Stride;
+
+public sealed class DishStationGame : Game
+{
+    private const float VirtualWidth = 1024;
+    private const float VirtualHeight = 600;
+    private static readonly DishStationEpisodeDefinition Episode = DishStationEpisodeDefinition.FirstPlayable;
+    private static readonly WorkstationPresentation[] Workstations =
+    [
+        new("SCRAPE", DishAction.Scrape, DishState.Dirty, new RectangleF(40, 165, 175, 120), new Color(89, 70, 55)),
+        new("RACK", DishAction.Rack, DishState.Scraped, new RectangleF(245, 165, 175, 120), new Color(55, 78, 93)),
+        new("WASHER", DishAction.StartWasher, DishState.Racked, new RectangleF(450, 165, 175, 120), new Color(47, 77, 102)),
+        new("UNLOAD", DishAction.Unload, DishState.WashedInMachine, new RectangleF(655, 165, 175, 120), new Color(47, 91, 91)),
+        new("DRY + RESTOCK", DishAction.DryAndRestock, DishState.CleanWet, new RectangleF(805, 330, 175, 120), new Color(60, 92, 65)),
+    ];
+    private static readonly DishState[] DishStates = Enum.GetValues<DishState>();
+    private static readonly SystemLens[] SystemLenses = Enum.GetValues<SystemLens>();
+
+    private DishStationWorld world = new(42);
+    private double simulationAccumulator;
+    private DishKind selectedKind = DishKind.Plate;
+    private int selectedWorkstation;
+    private bool godMode;
+    private bool benchmarkVisible;
+    private SyntheticWorkResult? benchmarkResult;
+    private string? quickSaveJson;
+    private bool paused;
+    private SystemLens activeLens = SystemLens.Process;
+    private readonly string? driverControlFile = Environment.GetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE");
+    private readonly bool developerToolsOptIn = string.Equals(Environment.GetEnvironmentVariable("AUTOMATION_DEVELOPER_TOOLS"), "1", StringComparison.Ordinal);
+    private readonly bool fullscreenPresentation;
+    private readonly int requestedWidth;
+    private readonly int requestedHeight;
+    private long driverControlSequence;
+    private double driverPollAccumulator;
+    private string commandFeedback = "";
+    private SpriteBatch? spriteBatch;
+    private Texture? pixel;
+    private Texture? diamond;
+    private IsometricCamera camera = IsometricCamera.Default;
+    private bool placementMode;
+    private DishStationFixture placementFixture;
+    private FloorCell placementPreview = DishStationPlacements.Linear.Scrape;
+    private readonly Stack<PlacementUndo> placementUndo = new();
+    private Vector2 visualPlayerCell;
+    private bool visualPlayerInitialized;
+    private float canvasScale = 1;
+    private float canvasOffsetX;
+    private float canvasOffsetY;
+    private DishStationFixture? hoveredFixture;
+    private float interactionTime;
+    private readonly Dictionary<string, Texture> interactionIcons = new(StringComparer.Ordinal);
+    private string lastPointerAction = "NONE";
+    private int introPage;
+    private GuidanceMode selectedGuidance = GuidanceMode.Guided;
+    private bool selectedReducedMotion;
+    private bool selectedHighContrast;
+    private bool questJournalVisible;
+    private bool helpVisible;
+    private readonly Dictionary<DishTutorialStage, HandbookVisitEvidence> handbookVisits = new();
+    private int selectedJournalQuest;
+    private bool questDetailVisible;
+    private bool shiftReportVisible;
+    private int observedLevel = 1;
+    private DishStationQuestId? observedActiveQuest = DishStationQuestId.ClockIn;
+    private DishStationQuestId? progressionReceiptQuest;
+    private int progressionReceiptLevel = 1;
+    private bool progressionReceiptLeveledUp;
+    private float progressionReceiptSeconds;
+    private readonly string careerSavePath = Environment.GetEnvironmentVariable("AUTOMATION_SAVE_PATH")
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TheAutomationGame", "career.json");
+    private readonly bool careerSaveEnabled = !string.Equals(Environment.GetEnvironmentVariable("AUTOMATION_DISABLE_CAREER_SAVE"), "1", StringComparison.Ordinal);
+    private bool startMenuVisible;
+    private bool newCareerConfirmation;
+    private int startMenuSelection;
+    private double autosaveAccumulator;
+    private long lastAutosaveTick = -1;
+    private string saveStatus = "NEW";
+    private bool renderHighContrast;
+    private bool renderReducedMotion;
+    private readonly string? playtestEvidencePath = Environment.GetEnvironmentVariable("AUTOMATION_PLAYTEST_EVIDENCE_PATH");
+    private readonly string playtestSessionId = Environment.GetEnvironmentVariable("AUTOMATION_PLAYTEST_SESSION_ID") ?? Guid.NewGuid().ToString("N");
+    private readonly DateTimeOffset playtestStartedAtUtc = DateTimeOffset.UtcNow;
+    private bool playtestEvidenceAttempted;
+    private string playtestEvidenceStatus = "off";
+    private bool DeveloperToolsAvailable => !string.IsNullOrWhiteSpace(driverControlFile) || developerToolsOptIn ||
+        world.TutorialStage == DishTutorialStage.EpisodeComplete;
+
+    public DishStationGame(bool fullscreenPresentation = false, int requestedWidth = 1280, int requestedHeight = 720)
+    {
+        this.fullscreenPresentation = fullscreenPresentation;
+        this.requestedWidth = requestedWidth;
+        this.requestedHeight = requestedHeight;
+        GraphicsDeviceManager.PreferredBackBufferWidth = requestedWidth;
+        GraphicsDeviceManager.PreferredBackBufferHeight = requestedHeight;
+    }
+
+    protected override void BeginRun()
+    {
+        base.BeginRun();
+        Window.AllowUserResizing = true;
+        Window.IsBorderLess = fullscreenPresentation;
+        Window.SetSize(new Int2(requestedWidth, requestedHeight));
+        DebugTextSystem.Visible = true;
+        spriteBatch = new SpriteBatch(GraphicsDevice);
+        pixel = Texture.New2D(GraphicsDevice, 1, 1, PixelFormat.R8G8B8A8_UNorm, TextureFlags.ShaderResource);
+        pixel.SetData(GraphicsContext.CommandList, [Color.White]);
+        diamond = IsometricStationScene.CreateDiamondTexture(GraphicsDevice, GraphicsContext);
+        foreach (var name in new[] { "pointer_a", "hand_point", "look_a", "disabled", "target_round_a" })
+            interactionIcons[name] = LoadInteractionIcon(name);
+        startMenuVisible = careerSaveEnabled && File.Exists(careerSavePath);
+        saveStatus = startMenuVisible ? "FOUND" : careerSaveEnabled ? "NEW" : "OFF";
+        playtestEvidenceStatus = string.IsNullOrWhiteSpace(playtestEvidencePath) ? "off" : "pending";
+        UpdateWindowTitle();
+    }
+
+    protected override void Update(GameTime gameTime)
+    {
+        interactionTime += (float)gameTime.Elapsed.TotalSeconds;
+        hoveredFixture = world.IntroComplete && !questJournalVisible && !helpVisible && activeLens is SystemLens.Reality or SystemLens.Process
+            ? IsometricStationScene.HitTest(VirtualMousePosition().X, VirtualMousePosition().Y, world.Placements, camera)
+            : null;
+        var playerCell = world.PlayerCell;
+        var playerTarget = new Vector2(playerCell.X, playerCell.Y);
+        if (!visualPlayerInitialized)
+        {
+            visualPlayerCell = playerTarget;
+            visualPlayerInitialized = true;
+        }
+        else
+        {
+            visualPlayerCell = world.Snapshot().Onboarding.ReducedMotion
+                ? playerTarget
+                : Vector2.Lerp(visualPlayerCell, playerTarget, Math.Min(1f, (float)gameTime.Elapsed.TotalSeconds * 7f));
+        }
+
+        simulationAccumulator += gameTime.Elapsed.TotalSeconds;
+        while (simulationAccumulator >= 0.1)
+        {
+            if (!paused && world.IntroComplete && !startMenuVisible) world.Advance();
+            simulationAccumulator -= 0.1;
+            if (world.Tick.Value % 10 == 0) UpdateWindowTitle();
+        }
+
+        progressionReceiptSeconds = Math.Max(0, progressionReceiptSeconds - (float)gameTime.Elapsed.TotalSeconds);
+        ObserveProgression();
+
+        if (startMenuVisible)
+        {
+            HandleStartMenuPointer();
+            if (Input.IsKeyPressed(Keys.Q) || Input.IsKeyPressed(Keys.Left)) HandleControl(ClientControl.MenuPrevious);
+            if (Input.IsKeyPressed(Keys.E) || Input.IsKeyPressed(Keys.Right)) HandleControl(ClientControl.MenuNext);
+            if (Input.IsKeyPressed(Keys.Enter) || Input.IsKeyPressed(Keys.Space)) HandleControl(ClientControl.MenuConfirm);
+            if (Input.IsKeyPressed(Keys.Escape)) HandleControl(newCareerConfirmation ? ClientControl.MenuBack : ClientControl.Exit);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
+        if (!world.IntroComplete)
+        {
+            HandleIntroPointer();
+            if (Input.IsKeyPressed(Keys.Q)) HandleControl(ClientControl.PreviousGuidance);
+            if (Input.IsKeyPressed(Keys.E)) HandleControl(ClientControl.NextGuidance);
+            if (Input.IsKeyPressed(Keys.Enter) || Input.IsKeyPressed(Keys.Space)) HandleControl(ClientControl.IntroNext);
+            if (Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.Exit);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
+        if (helpVisible)
+        {
+            if (LeftClickIn(802, 74, 116, 38)) HandleControl(ClientControl.ToggleHelp);
+            if (Input.IsKeyPressed(Keys.F12) || Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.ToggleHelp);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
+        if (questJournalVisible)
+        {
+            HandleJournalPointer();
+            if (Input.IsKeyPressed(Keys.J)) HandleControl(ClientControl.ToggleQuestJournal);
+            if (Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.JournalBack);
+            if (Input.IsKeyPressed(Keys.Up) || Input.IsKeyPressed(Keys.Q)) HandleControl(ClientControl.JournalPrevious);
+            if (Input.IsKeyPressed(Keys.Down) || Input.IsKeyPressed(Keys.E)) HandleControl(ClientControl.JournalNext);
+            if (Input.IsKeyPressed(Keys.Enter) || Input.IsKeyPressed(Keys.Space)) HandleControl(ClientControl.ToggleQuestDetail);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
+        if (shiftReportVisible)
+        {
+            if (LeftClickIn(784, 526, 148, 28)) HandleControl(ClientControl.ToggleShiftReport);
+            if (Input.IsKeyPressed(Keys.K) || Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.ToggleShiftReport);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
+        if (careerSaveEnabled && world.IntroComplete)
+        {
+            autosaveAccumulator += gameTime.Elapsed.TotalSeconds;
+            if (autosaveAccumulator >= 5 && lastAutosaveTick != world.Tick.Value)
+            {
+                autosaveAccumulator = 0;
+                SaveCareer();
+            }
+        }
+
+        if (Input.IsKeyPressed(Keys.Q)) HandleControl(placementMode ? ClientControl.PreviousPlacementFixture : ClientControl.PreviousWorkstation);
+        if (Input.IsKeyPressed(Keys.E)) HandleControl(placementMode ? ClientControl.NextPlacementFixture : ClientControl.NextWorkstation);
+        if (Input.IsKeyPressed(Keys.Space)) HandleControl(ClientControl.ContextWork);
+        if (HandleHudPointer())
+        {
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+        SelectWorkstationFromMouse();
+        if (Input.IsKeyPressed(Keys.D1)) HandleControl(ClientControl.Scrape);
+        if (Input.IsKeyPressed(Keys.D2)) HandleControl(ClientControl.Rack);
+        if (Input.IsKeyPressed(Keys.D3)) HandleControl(ClientControl.StartWasher);
+        if (Input.IsKeyPressed(Keys.D4)) HandleControl(ClientControl.Unload);
+        if (Input.IsKeyPressed(Keys.D5)) HandleControl(ClientControl.DryAndRestock);
+        if (Input.IsKeyPressed(Keys.Tab)) HandleControl(ClientControl.NextDish);
+        if (Input.IsKeyPressed(Keys.R)) HandleControl(ClientControl.ToggleRush);
+        if (Input.IsKeyPressed(Keys.B)) HandleControl(ClientControl.ConfirmBottleneck);
+        if (Input.IsKeyPressed(Keys.G)) HandleControl(ClientControl.ConfigureFlowCell);
+        if (Input.IsKeyPressed(Keys.N)) HandleControl(ClientControl.ToggleNewHire);
+        if (Input.IsKeyPressed(Keys.T)) HandleControl(ClientControl.TrainHappyPath);
+        if (Input.IsKeyPressed(Keys.Y)) HandleControl(ClientControl.TrainRushPriority);
+        if (Input.IsKeyPressed(Keys.U)) HandleControl(ClientControl.TrainRareTray);
+        if (Input.IsKeyPressed(Keys.A)) HandleControl(ClientControl.EnableReportedAutomation);
+        if (Input.IsKeyPressed(Keys.I)) HandleControl(ClientControl.InspectIncident);
+        if (Input.IsKeyPressed(Keys.P)) HandleControl(ClientControl.ReplayIncident);
+        if (Input.IsKeyPressed(Keys.D)) HandleControl(ClientControl.ToggleIncidentLens);
+        if (Input.IsKeyPressed(Keys.V)) HandleControl(ClientControl.NextLens);
+        if (Input.IsKeyPressed(Keys.S)) HandleControl(ClientControl.EnableSafeAutomation);
+        if (Input.IsKeyPressed(Keys.W)) HandleControl(ClientControl.StartShiftTrial);
+        if (Input.IsKeyPressed(Keys.L)) HandleControl(ClientControl.ToggleProcessLens);
+        if (Input.IsKeyPressed(Keys.F1)) HandleControl(ClientControl.ToggleGodMode);
+        if (Input.IsKeyPressed(Keys.F2)) HandleControl(ClientControl.GodAddDirty);
+        if (Input.IsKeyPressed(Keys.F3)) HandleControl(ClientControl.GodSetCleanSupply);
+        if (Input.IsKeyPressed(Keys.F4)) HandleControl(ClientControl.GodReset);
+        if (Input.IsKeyPressed(Keys.F5)) HandleControl(ClientControl.GodTogglePause);
+        if (Input.IsKeyPressed(Keys.F6)) HandleControl(ClientControl.GodStep);
+        if (Input.IsKeyPressed(Keys.F7)) HandleControl(ClientControl.GodStickyReady);
+        if (Input.IsKeyPressed(Keys.F8)) HandleControl(ClientControl.GodToggleLayout);
+        if (Input.IsKeyPressed(Keys.F9)) HandleControl(ClientControl.GodToggleBenchmark);
+        if (Input.IsKeyPressed(Keys.F10)) HandleControl(ClientControl.GodQuickSave);
+        if (Input.IsKeyPressed(Keys.F11)) HandleControl(ClientControl.GodQuickLoad);
+        if (Input.IsKeyPressed(Keys.M)) HandleControl(ClientControl.TogglePlacementMode);
+        if (Input.IsKeyPressed(Keys.Enter)) HandleControl(ClientControl.ConfirmPlacement);
+        if (Input.IsKeyPressed(Keys.Back)) HandleControl(ClientControl.UndoPlacement);
+        if (Input.IsKeyPressed(Keys.H)) HandleControl(ClientControl.ResetSandboxLayout);
+        if (Input.IsKeyPressed(Keys.Left)) HandleControl(placementMode ? ClientControl.PlacementLeft : ClientControl.CameraPanLeft);
+        if (Input.IsKeyPressed(Keys.Right)) HandleControl(placementMode ? ClientControl.PlacementRight : ClientControl.CameraPanRight);
+        if (Input.IsKeyPressed(Keys.Up)) HandleControl(placementMode ? ClientControl.PlacementUp : ClientControl.CameraPanUp);
+        if (Input.IsKeyPressed(Keys.Down)) HandleControl(placementMode ? ClientControl.PlacementDown : ClientControl.CameraPanDown);
+        if (Input.IsKeyPressed(Keys.Z)) HandleControl(ClientControl.CameraZoomIn);
+        if (Input.IsKeyPressed(Keys.X)) HandleControl(ClientControl.CameraZoomOut);
+        if (Input.IsKeyPressed(Keys.C)) HandleControl(ClientControl.CameraReset);
+        if (Input.IsKeyPressed(Keys.J)) HandleControl(ClientControl.ToggleQuestJournal);
+        if (Input.IsKeyPressed(Keys.K)) HandleControl(ClientControl.ToggleShiftReport);
+        if (Input.IsKeyPressed(Keys.F12)) HandleControl(ClientControl.ToggleHelp);
+        if (Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.Exit);
+        PollDriverControl(gameTime.Elapsed.TotalSeconds);
+
+        base.Update(gameTime);
+    }
+
+    protected override void Draw(GameTime gameTime)
+    {
+        base.Draw(gameTime);
+        GraphicsContext.CommandList.SetRenderTargetAndViewport(null, GraphicsDevice.Presenter.BackBuffer);
+        GraphicsContext.CommandList.Clear(GraphicsDevice.Presenter.BackBuffer, new Color4(0.025f, 0.04f, 0.055f, 1f));
+        var snapshot = world.Snapshot();
+        DrawRoom(snapshot);
+    }
+
+    protected override void Destroy()
+    {
+        diamond?.Dispose();
+        pixel?.Dispose();
+        foreach (var icon in interactionIcons.Values) icon.Dispose();
+        spriteBatch?.Dispose();
+        base.Destroy();
+    }
+
+    private void Perform(DishAction action) => Execute(new PerformDishActionCommand(world.Tick, action, selectedKind));
+
+    private void HandleControl(ClientControl control)
+    {
+        switch (control)
+        {
+            case ClientControl.MenuPrevious: SelectStartMenu(-1); break;
+            case ClientControl.MenuNext: SelectStartMenu(1); break;
+            case ClientControl.MenuConfirm: ConfirmStartMenu(); break;
+            case ClientControl.MenuBack:
+                newCareerConfirmation = false;
+                UpdateWindowTitle();
+                break;
+            case ClientControl.IntroNext: AdvanceIntro(); break;
+            case ClientControl.PreviousGuidance: SelectGuidance(-1); break;
+            case ClientControl.NextGuidance: SelectGuidance(1); break;
+            case ClientControl.ToggleQuestJournal:
+                questJournalVisible = !questJournalVisible;
+                questDetailVisible = false;
+                if (questJournalVisible)
+                    selectedJournalQuest = (int)(world.Snapshot().Progression.ActiveQuest ?? DishStationQuestId.OwnTheShift);
+                commandFeedback = questJournalVisible ? "Quest journal opened." : "Quest journal closed.";
+                UpdateWindowTitle();
+                break;
+            case ClientControl.ToggleHelp:
+                helpVisible = !helpVisible;
+                questJournalVisible = false;
+                questDetailVisible = false;
+                shiftReportVisible = false;
+                if (helpVisible) RecordHandbookVisit();
+                commandFeedback = helpVisible ? "Controls and current opportunities opened." : "Help closed.";
+                UpdateWindowTitle();
+                break;
+            case ClientControl.JournalPrevious: SelectJournalQuest(-1); break;
+            case ClientControl.JournalNext: SelectJournalQuest(1); break;
+            case ClientControl.ToggleQuestDetail:
+                questDetailVisible = !questDetailVisible;
+                UpdateWindowTitle();
+                break;
+            case ClientControl.JournalBack:
+                if (questDetailVisible) questDetailVisible = false;
+                else questJournalVisible = false;
+                UpdateWindowTitle();
+                break;
+            case ClientControl.ToggleShiftReport:
+                if (shiftReportVisible)
+                {
+                    shiftReportVisible = false;
+                    commandFeedback = "Shift report closed.";
+                }
+                else if (world.Snapshot().Progression.IsUnlocked(CareerCapability.ShiftScorecard))
+                {
+                    questJournalVisible = false;
+                    questDetailVisible = false;
+                    activeLens = SystemLens.Process;
+                    shiftReportVisible = true;
+                    commandFeedback = "Shift report opened.";
+                }
+                else
+                {
+                    ShowLockedCapability(CareerCapability.ShiftScorecard);
+                    break;
+                }
+                UpdateWindowTitle();
+                break;
+            case ClientControl.PreviousWorkstation: SelectWorkstation(-1); break;
+            case ClientControl.NextWorkstation: SelectWorkstation(1); break;
+            case ClientControl.ContextWork:
+                var workCell = world.Placements.At((DishStationFixture)selectedWorkstation);
+                if (world.PlayerCell != workCell) Execute(new MovePlayerCommand(world.Tick, workCell));
+                else Perform(Workstations[selectedWorkstation].Action);
+                break;
+            case ClientControl.Scrape: Perform(DishAction.Scrape); break;
+            case ClientControl.Rack: Perform(DishAction.Rack); break;
+            case ClientControl.StartWasher: Perform(DishAction.StartWasher); break;
+            case ClientControl.Unload: Perform(DishAction.Unload); break;
+            case ClientControl.DryAndRestock: Perform(DishAction.DryAndRestock); break;
+            case ClientControl.NextDish:
+                selectedKind = selectedKind switch
+                {
+                    DishKind.Plate => DishKind.Glass,
+                    DishKind.Glass => DishKind.Tray,
+                    _ => DishKind.Plate,
+                };
+                break;
+            case ClientControl.ToggleRush: Execute(new SetRushCommand(world.Tick, !world.RushEnabled)); break;
+            case ClientControl.ConfirmBottleneck: Execute(new ConfirmBottleneckCommand(world.Tick, Workstations[selectedWorkstation].QueueState)); break;
+            case ClientControl.ConfigureFlowCell:
+                if (godMode || world.Snapshot().Progression.IsUnlocked(CareerCapability.LayoutEditor))
+                    Execute(new ConfigureDishStationLayoutCommand(world.Tick, DishStationLayout.UShapedCell));
+                else ShowLockedCapability(CareerCapability.LayoutEditor);
+                break;
+            case ClientControl.ToggleNewHire: Execute(new SetNewHireEnabledCommand(world.Tick, !world.NewHireEnabled)); break;
+            case ClientControl.TrainHappyPath: Execute(new TrainNewHireCommand(world.Tick, DishProcessSpecification.HappyPath)); break;
+            case ClientControl.TrainRushPriority: Execute(new TrainNewHireCommand(world.Tick, DishProcessSpecification.RushAware)); break;
+            case ClientControl.TrainRareTray: Execute(new TrainNewHireCommand(world.Tick, DishProcessSpecification.FullyDocumented)); break;
+            case ClientControl.EnableReportedAutomation: Execute(new ConfigureWasherAutomationCommand(world.Tick, WasherAutomationPolicy.ReportedReadyOnly)); break;
+            case ClientControl.InspectIncident:
+                Execute(new InspectAutomationIncidentCommand(world.Tick));
+                if (world.Snapshot().Automation.Incident.Recorded) activeLens = SystemLens.Runtime;
+                break;
+            case ClientControl.ReplayIncident:
+                Execute(new ReplayAutomationIncidentCommand(world.Tick));
+                if (world.Snapshot().Automation.Incident.Recorded) activeLens = SystemLens.Runtime;
+                break;
+            case ClientControl.ToggleIncidentLens:
+                activeLens = activeLens == SystemLens.Runtime ? SystemLens.Process : SystemLens.Runtime;
+                UpdateWindowTitle();
+                break;
+            case ClientControl.NextLens: SelectNextLens(); break;
+            case ClientControl.EnableSafeAutomation: Execute(new ConfigureWasherAutomationCommand(world.Tick, WasherAutomationPolicy.CorroboratedReady)); break;
+            case ClientControl.StartShiftTrial: Execute(new StartShiftTrialCommand(world.Tick)); break;
+            case ClientControl.ToggleProcessLens:
+                if (world.TutorialStage == DishTutorialStage.InspectShortage)
+                {
+                    activeLens = SystemLens.Process;
+                    Execute(new InspectProcessCommand(world.Tick));
+                }
+                else
+                {
+                    activeLens = activeLens == SystemLens.Process ? SystemLens.Reality : SystemLens.Process;
+                    UpdateWindowTitle();
+                }
+                break;
+            case ClientControl.ToggleGodMode:
+                if (!DeveloperToolsAvailable)
+                {
+                    commandFeedback = "LOCKED: sandbox tools unlock after the first shift.";
+                    break;
+                }
+                godMode = !godMode;
+                commandFeedback = godMode ? "Sandbox tools opened." : "Sandbox tools closed.";
+                break;
+            case ClientControl.GodAddDirty when godMode: Execute(new AddDirtyDishesCommand(world.Tick, selectedKind, 5)); break;
+            case ClientControl.GodSetCleanSupply when godMode: Execute(new ConfigureDishSupplyCommand(world.Tick, DishState.Available, selectedKind, 10)); break;
+            case ClientControl.GodReset when godMode: Execute(new ResetDishStationCommand(world.Tick)); break;
+            case ClientControl.GodTogglePause when godMode:
+                paused = !paused;
+                commandFeedback = paused ? "Simulation paused." : "Simulation resumed.";
+                UpdateWindowTitle();
+                break;
+            case ClientControl.GodStep when godMode && paused:
+                world.Advance();
+                UpdateWindowTitle();
+                break;
+            case ClientControl.GodStickyReady when godMode: Execute(new InjectStickyReadyFaultCommand(world.Tick)); break;
+            case ClientControl.GodToggleLayout when godMode:
+                Execute(new ConfigureDishStationLayoutCommand(world.Tick, world.Layout == DishStationLayout.Linear ? DishStationLayout.UShapedCell : DishStationLayout.Linear));
+                break;
+            case ClientControl.GodToggleBenchmark when godMode:
+                benchmarkVisible = !benchmarkVisible;
+                if (benchmarkVisible) benchmarkResult ??= SyntheticWorkBenchmark.Run(100_000, 100, 10_000);
+                commandFeedback = benchmarkVisible ? "Showing a 10k-actor projection of the 100k benchmark." : "Synthetic benchmark view closed.";
+                UpdateWindowTitle();
+                break;
+            case ClientControl.GodQuickSave when godMode:
+                quickSaveJson = DishStationSaveStore.Serialize(world);
+                commandFeedback = $"Saved deterministic checkpoint at tick {world.Tick.Value}.";
+                UpdateWindowTitle();
+                break;
+            case ClientControl.GodQuickLoad when godMode && quickSaveJson is not null:
+                world = DishStationSaveStore.Deserialize(quickSaveJson);
+                simulationAccumulator = 0;
+                commandFeedback = $"Restored deterministic checkpoint at tick {world.Tick.Value}.";
+                SaveCareer();
+                UpdateWindowTitle();
+                break;
+            case ClientControl.CameraPanLeft: MoveCamera(-28, 0); break;
+            case ClientControl.CameraPanRight: MoveCamera(28, 0); break;
+            case ClientControl.CameraPanUp: MoveCamera(0, -18); break;
+            case ClientControl.CameraPanDown: MoveCamera(0, 18); break;
+            case ClientControl.CameraZoomIn: ZoomCamera(0.1f); break;
+            case ClientControl.CameraZoomOut: ZoomCamera(-0.1f); break;
+            case ClientControl.CameraReset:
+                camera = IsometricCamera.Default;
+                commandFeedback = "Camera centered on the sandbox floor.";
+                UpdateWindowTitle();
+                break;
+            case ClientControl.TogglePlacementMode:
+                if (!godMode && !world.Snapshot().Progression.IsUnlocked(CareerCapability.LayoutEditor))
+                {
+                    ShowLockedCapability(CareerCapability.LayoutEditor);
+                    break;
+                }
+                placementMode = !placementMode;
+                if (placementMode)
+                {
+                    activeLens = SystemLens.Process;
+                    placementPreview = world.Placements.At(placementFixture);
+                }
+                commandFeedback = placementMode
+                    ? "Placement mode: Q/E fixture, click or Enter to place, Backspace undo, H reset."
+                    : "Placement mode closed.";
+                UpdateWindowTitle();
+                break;
+            case ClientControl.PreviousPlacementFixture: SelectPlacementFixture(-1); break;
+            case ClientControl.NextPlacementFixture: SelectPlacementFixture(1); break;
+            case ClientControl.PlacementLeft: MovePlacementPreview(-1, 0); break;
+            case ClientControl.PlacementRight: MovePlacementPreview(1, 0); break;
+            case ClientControl.PlacementUp: MovePlacementPreview(0, -1); break;
+            case ClientControl.PlacementDown: MovePlacementPreview(0, 1); break;
+            case ClientControl.ConfirmPlacement: ConfirmPlacement(); break;
+            case ClientControl.UndoPlacement: UndoPlacement(); break;
+            case ClientControl.ResetSandboxLayout:
+                placementUndo.Clear();
+                Execute(new ConfigureDishStationLayoutCommand(world.Tick, DishStationLayout.Linear));
+                placementPreview = world.Placements.At(placementFixture);
+                break;
+            case ClientControl.Exit: Exit(); break;
+        }
+    }
+
+    private void PollDriverControl(double elapsedSeconds)
+    {
+        if (string.IsNullOrWhiteSpace(driverControlFile)) return;
+        driverPollAccumulator += elapsedSeconds;
+        if (driverPollAccumulator < 0.05) return;
+        driverPollAccumulator = 0;
+
+        try
+        {
+            if (!File.Exists(driverControlFile)) return;
+            var instruction = File.ReadAllText(driverControlFile);
+            var separator = instruction.IndexOf('|');
+            if (separator <= 0 ||
+                !long.TryParse(instruction.AsSpan(0, separator), out var sequence) ||
+                sequence <= driverControlSequence ||
+                !Enum.TryParse<ClientControl>(instruction.AsSpan(separator + 1), true, out var control)) return;
+            driverControlSequence = sequence;
+            HandleControl(control);
+        }
+        catch (IOException)
+        {
+            // The external driver may be replacing its tiny instruction file; retry next poll.
+        }
+    }
+
+    private void Execute(ISimulationCommand command)
+    {
+        var result = world.ExecuteNow(command);
+        commandFeedback = result.Success ? result.Message : $"BLOCKED: {result.Message}";
+        if (result.Success && world.IntroComplete) SaveCareer();
+        UpdateWindowTitle();
+    }
+
+    private void AdvanceIntro()
+    {
+        if (world.IntroComplete) return;
+        if (introPage < 4)
+        {
+            introPage++;
+            UpdateWindowTitle();
+            return;
+        }
+        Execute(new CompleteIntroCommand(world.Tick, selectedGuidance, selectedReducedMotion, selectedHighContrast));
+    }
+
+    private void SelectStartMenu(int offset)
+    {
+        if (newCareerConfirmation) return;
+        startMenuSelection = (startMenuSelection + offset + 2) % 2;
+        UpdateWindowTitle();
+    }
+
+    private void ConfirmStartMenu()
+    {
+        if (startMenuSelection == 0 && !newCareerConfirmation)
+        {
+            try
+            {
+                world = DishStationSaveStore.LoadFile(careerSavePath);
+                var snapshot = world.Snapshot();
+                observedLevel = snapshot.Progression.Level;
+                observedActiveQuest = snapshot.Progression.ActiveQuest;
+                visualPlayerInitialized = false;
+                simulationAccumulator = 0;
+                autosaveAccumulator = 0;
+                lastAutosaveTick = world.Tick.Value;
+                saveStatus = "LOADED";
+                startMenuVisible = false;
+                commandFeedback = $"Career resumed at level {snapshot.Progression.Level}.";
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or NotSupportedException)
+            {
+                saveStatus = "ERROR";
+                commandFeedback = "Career save could not be read. Start a new career or restore the file.";
+                startMenuSelection = 1;
+            }
+            UpdateWindowTitle();
+            return;
+        }
+
+        if (!newCareerConfirmation)
+        {
+            newCareerConfirmation = true;
+            UpdateWindowTitle();
+            return;
+        }
+
+        world = new DishStationWorld(42);
+        introPage = 0;
+        selectedGuidance = GuidanceMode.Guided;
+        selectedReducedMotion = false;
+        selectedHighContrast = false;
+        observedLevel = 1;
+        observedActiveQuest = DishStationQuestId.ClockIn;
+        progressionReceiptQuest = null;
+        shiftReportVisible = false;
+        progressionReceiptSeconds = 0;
+        visualPlayerInitialized = false;
+        simulationAccumulator = 0;
+        autosaveAccumulator = 0;
+        lastAutosaveTick = -1;
+        saveStatus = "NEW";
+        newCareerConfirmation = false;
+        startMenuVisible = false;
+        commandFeedback = "New career ready. Complete the first-shift briefing to replace the previous checkpoint.";
+        UpdateWindowTitle();
+    }
+
+    private void SaveCareer()
+    {
+        if (!careerSaveEnabled || !world.IntroComplete) return;
+        try
+        {
+            DishStationSaveStore.SaveFileAtomic(careerSavePath, world);
+            lastAutosaveTick = world.Tick.Value;
+            saveStatus = "SAVED";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            saveStatus = "ERROR";
+            commandFeedback = "AUTOSAVE FAILED: your current session is still running.";
+        }
+    }
+
+    private void SelectGuidance(int offset)
+    {
+        if (introPage == 3)
+        {
+            var count = Enum.GetValues<GuidanceMode>().Length;
+            selectedGuidance = (GuidanceMode)(((int)selectedGuidance + offset + count) % count);
+        }
+        else if (introPage == 4)
+        {
+            if (offset < 0) selectedReducedMotion = !selectedReducedMotion;
+            else selectedHighContrast = !selectedHighContrast;
+        }
+        else return;
+        UpdateWindowTitle();
+    }
+
+    private void SelectJournalQuest(int offset)
+    {
+        var count = DishStationFirstHoursContent.Quests.Count;
+        selectedJournalQuest = (selectedJournalQuest + offset + count) % count;
+        UpdateWindowTitle();
+    }
+
+    private void ObserveProgression()
+    {
+        var progression = world.Snapshot().Progression;
+        if (progression.ActiveQuest != observedActiveQuest)
+        {
+            progressionReceiptQuest = observedActiveQuest;
+            progressionReceiptLevel = progression.Level;
+            progressionReceiptLeveledUp = progression.Level > observedLevel;
+            progressionReceiptSeconds = 8f;
+            observedActiveQuest = progression.ActiveQuest;
+        }
+        observedLevel = progression.Level;
+        if (progression.ActiveQuest is null && !playtestEvidenceAttempted && !string.IsNullOrWhiteSpace(playtestEvidencePath))
+            WritePlaytestEvidence();
+    }
+
+    private void WritePlaytestEvidence()
+    {
+        playtestEvidenceAttempted = true;
+        try
+        {
+            var completedAtUtc = DateTimeOffset.UtcNow;
+            var evidence = FirstHoursPlaytestEvidence.Create(playtestSessionId, playtestStartedAtUtc, completedAtUtc, world.Snapshot(),
+                handbookVisits.Values.OrderBy(visit => visit.FirstOpenedAtTick).ToArray());
+            FirstHoursPlaytestEvidenceStore.SaveFileAtomic(playtestEvidencePath!, evidence);
+            playtestEvidenceStatus = "written";
+            commandFeedback = $"Playtest evidence written for session {playtestSessionId}.";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            playtestEvidenceStatus = "error";
+            commandFeedback = "PLAYTEST EVIDENCE FAILED: the career remains playable and saved.";
+        }
+        UpdateWindowTitle();
+    }
+
+    private void RecordHandbookVisit()
+    {
+        var stage = world.TutorialStage;
+        var tick = world.Tick.Value;
+        handbookVisits[stage] = handbookVisits.TryGetValue(stage, out var visit)
+            ? visit with { OpenCount = visit.OpenCount + 1, LastOpenedAtTick = tick }
+            : new(stage, 1, tick, tick);
+    }
+
+    private void HandleStartMenuPointer()
+    {
+        if (newCareerConfirmation)
+        {
+            if (LeftClickIn(218, 388, 250, 48)) HandleControl(ClientControl.MenuConfirm);
+            else if (LeftClickIn(548, 388, 250, 48)) HandleControl(ClientControl.MenuBack);
+            return;
+        }
+
+        if (LeftClickIn(226, 235, 260, 92))
+        {
+            startMenuSelection = 0;
+            HandleControl(ClientControl.MenuConfirm);
+        }
+        else if (LeftClickIn(526, 235, 260, 92))
+        {
+            startMenuSelection = 1;
+            HandleControl(ClientControl.MenuConfirm);
+        }
+    }
+
+    private void HandleIntroPointer()
+    {
+        if (introPage == 3)
+        {
+            for (var index = 0; index < Enum.GetValues<GuidanceMode>().Length; index++)
+            {
+                if (!LeftClickIn(177 + index * 230, 325, 210, 76)) continue;
+                selectedGuidance = (GuidanceMode)index;
+                UpdateWindowTitle();
+                return;
+            }
+        }
+        else if (introPage == 4)
+        {
+            if (LeftClickIn(177, 325, 300, 86))
+            {
+                selectedReducedMotion = !selectedReducedMotion;
+                UpdateWindowTitle();
+                return;
+            }
+            if (LeftClickIn(507, 325, 300, 86))
+            {
+                selectedHighContrast = !selectedHighContrast;
+                UpdateWindowTitle();
+                return;
+            }
+        }
+
+        if (LeftClickIn(640, 456, 218, 48)) HandleControl(ClientControl.IntroNext);
+    }
+
+    private void HandleJournalPointer()
+    {
+        if (questDetailVisible)
+        {
+            if (LeftClickIn(620, 486, 116, 34)) HandleControl(ClientControl.JournalBack);
+            else if (LeftClickIn(750, 486, 116, 34)) HandleControl(ClientControl.ToggleQuestJournal);
+            return;
+        }
+
+        for (var index = 0; index < DishStationFirstHoursContent.Quests.Count; index++)
+        {
+            if (!LeftClickIn(126, 141 + index * 43, 770, 42)) continue;
+            selectedJournalQuest = index;
+            UpdateWindowTitle();
+            return;
+        }
+        if (LeftClickIn(620, 502, 116, 32)) HandleControl(ClientControl.ToggleQuestDetail);
+        else if (LeftClickIn(750, 502, 116, 32)) HandleControl(ClientControl.ToggleQuestJournal);
+    }
+
+    private bool HandleHudPointer()
+    {
+        if (LeftClickIn(716, 522, 88, 26))
+        {
+            HandleControl(ClientControl.ToggleQuestJournal);
+            return true;
+        }
+        if (LeftClickIn(810, 522, 88, 26))
+        {
+            HandleControl(ClientControl.ToggleHelp);
+            return true;
+        }
+        if (LeftClickIn(904, 522, 88, 26))
+        {
+            HandleControl(ClientControl.ToggleShiftReport);
+            return true;
+        }
+        return false;
+    }
+
+    private bool LeftClickIn(float x, float y, float width, float height)
+    {
+        if (!Input.IsMouseButtonPressed(MouseButton.Left)) return false;
+        var point = VirtualMousePosition();
+        return point.X >= x && point.X <= x + width && point.Y >= y && point.Y <= y + height;
+    }
+
+    private void DrawIntroWizard()
+    {
+        DrawModalScrim();
+        DrawPanel(132, 78, 760, 444, new Color(17, 30, 38, 248), Color.DeepSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, $"STARTING BRIEF  {introPage + 1}/5", 166, 107, 1, Color.LightSkyBlue);
+        var (title, body) = introPage switch
+        {
+            0 => ("WELCOME TO YOUR FIRST SHIFT", "SERVICE IS ABOUT TO OPEN. THIS SMALL DISH STATION IS ALREADY A SYSTEM:\nPEOPLE, MACHINES, INVENTORY, TIMING, AND UNWRITTEN KNOWLEDGE ALL AFFECT\nWHAT HAPPENS. YOUR JOB IS TO KEEP THE REAL OUTCOME IN VIEW."),
+            1 => ("ACT THROUGH CONSEQUENCES", "CLICK A MACHINE TO WALK TO IT; CLICK AGAIN TO WORK. CLICK THE FLOOR TO MOVE.\nDISHES CHANGE VISIBLE STATE, MACHINES BECOME OCCUPIED, AND SERVICE CONSUMES\nWHAT YOU PRODUCE. THE SIMULATION, NOT THE INTERFACE, DECIDES THE RESULT."),
+            2 => ("QUESTS DESCRIBE OUTCOMES", "QUESTS TELL YOU WHAT THE WORKPLACE NEEDS, NOT WHICH BUTTON IS THE ANSWER.\nWATCH CONSEQUENCES, OPEN SYSTEM LENSES, AND TEST YOUR OWN EXPLANATION.\nNEW TOOLS UNLOCK AFTER THE PROBLEM THAT MAKES THEM USEFUL APPEARS."),
+            3 => ("CHOOSE YOUR GUIDANCE", "GUIDED KEEPS DETAILED NEXT-ACTION PROMPTS. CONTEXTUAL EMPHASIZES THE\nCURRENT OUTCOME AND EVIDENCE. MINIMAL LEAVES ONLY QUEST CONDITIONS AND\nWORLD FEEDBACK. THIS CHOICE IS SAVED WITH THE REPLAYABLE CAREER STATE."),
+            _ => ("COMFORT AND READABILITY", "REDUCED MOTION REMOVES CURSOR PULSING AND ACTOR EASING. HIGH CONTRAST\nUSES DARKER PANELS AND STRONGER EDGES. BOTH SETTINGS ARE INDEPENDENT,\nSAVED WITH YOUR CAREER, AND CHANGE PRESENTATION RATHER THAN SIMULATION."),
+        };
+        PixelFont.Draw(spriteBatch!, pixel!, title, 166, 147, 2, Color.White, 50);
+        PixelFont.Draw(spriteBatch!, pixel!, body, 166, 207, 1, Color.LightGray, 92);
+        if (introPage == 3)
+        {
+            var x = 177f;
+            foreach (var mode in Enum.GetValues<GuidanceMode>())
+            {
+                var selected = mode == selectedGuidance;
+                DrawPanel(x, 325, 210, 76, selected ? new Color(40, 75, 88) : new Color(27, 43, 51), selected ? Color.LightGreen : new Color(84, 103, 110));
+                PixelFont.Draw(spriteBatch!, pixel!, mode.ToString().ToUpperInvariant(), x + 14, 340, 1, selected ? Color.LightGreen : Color.White);
+                PixelFont.Draw(spriteBatch!, pixel!, mode switch { GuidanceMode.Guided => "FULL PROMPTS", GuidanceMode.Contextual => "OUTCOME + CLUES", _ => "WORLD SIGNALS" }, x + 14, 366, 1, Color.LightGray);
+                x += 230;
+            }
+            PixelFont.Draw(spriteBatch!, pixel!, "CLICK A CARD OR Q/E CHOOSE", 166, 438, 1, Color.LightGray);
+        }
+        else if (introPage == 4)
+        {
+            DrawPanel(177, 325, 300, 86, selectedReducedMotion ? new Color(40, 75, 88) : new Color(27, 43, 51), selectedReducedMotion ? Color.LightGreen : new Color(84, 103, 110));
+            PixelFont.Draw(spriteBatch!, pixel!, $"Q  REDUCED MOTION  {(selectedReducedMotion ? "ON" : "OFF")}", 195, 344, 1, selectedReducedMotion ? Color.LightGreen : Color.White);
+            PixelFont.Draw(spriteBatch!, pixel!, "SNAP ACTORS / STATIC RETICLE", 195, 375, 1, Color.LightGray);
+            DrawPanel(507, 325, 300, 86, selectedHighContrast ? new Color(40, 75, 88) : new Color(27, 43, 51), selectedHighContrast ? Color.LightGreen : new Color(84, 103, 110));
+            PixelFont.Draw(spriteBatch!, pixel!, $"E  HIGH CONTRAST  {(selectedHighContrast ? "ON" : "OFF")}", 525, 344, 1, selectedHighContrast ? Color.LightGreen : Color.White);
+            PixelFont.Draw(spriteBatch!, pixel!, "DARK PANELS / BRIGHT EDGES", 525, 375, 1, Color.LightGray);
+        }
+        DrawPanel(640, 456, 218, 48, new Color(58, 52, 27), Color.Yellow);
+        PixelFont.Draw(spriteBatch!, pixel!, introPage == 4 ? "START CAREER" : "CONTINUE", introPage == 4 ? 687 : 704, 474, 1, Color.Yellow);
+    }
+
+    private void DrawStartMenu()
+    {
+        DrawModalScrim();
+        DrawPanel(186, 104, 652, 392, new Color(17, 30, 38, 250), Color.DeepSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "THE AUTOMATION GAME", 226, 140, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "YOUR WORK IS SAVED AS REPLAYABLE CONSEQUENCES, NOT A SCREENSHOT OF THE UI.", 226, 184, 1, Color.LightGray, 78);
+        if (newCareerConfirmation)
+        {
+            PixelFont.Draw(spriteBatch!, pixel!, "START A NEW CAREER?", 226, 244, 2, Color.OrangeRed);
+            PixelFont.Draw(spriteBatch!, pixel!, "THE EXISTING CHECKPOINT IS KEPT UNTIL YOU COMPLETE THE NEW BRIEFING.\nAFTER THAT, THE NEW CAREER REPLACES IT.", 226, 292, 1, Color.White, 73);
+            DrawPanel(218, 388, 250, 48, new Color(65, 48, 29), Color.Yellow);
+            PixelFont.Draw(spriteBatch!, pixel!, "CONFIRM NEW CAREER", 249, 406, 1, Color.Yellow);
+            DrawPanel(548, 388, 250, 48, new Color(31, 45, 51), Color.LightGray);
+            PixelFont.Draw(spriteBatch!, pixel!, "KEEP EXISTING CAREER", 573, 406, 1, Color.LightGray);
+            return;
+        }
+
+        DrawPanel(226, 235, 260, 92, startMenuSelection == 0 ? new Color(43, 76, 88) : new Color(25, 43, 51), startMenuSelection == 0 ? Color.LightGreen : new Color(78, 97, 104));
+        PixelFont.Draw(spriteBatch!, pixel!, "CONTINUE", 246, 255, 2, startMenuSelection == 0 ? Color.LightGreen : Color.White);
+        PixelFont.Draw(spriteBatch!, pixel!, saveStatus == "ERROR" ? "CHECKPOINT UNREADABLE" : "RESUME LAST CHECKPOINT", 246, 295, 1, saveStatus == "ERROR" ? Color.OrangeRed : Color.LightGray);
+        DrawPanel(526, 235, 260, 92, startMenuSelection == 1 ? new Color(74, 58, 43) : new Color(25, 43, 51), startMenuSelection == 1 ? Color.Goldenrod : new Color(78, 97, 104));
+        PixelFont.Draw(spriteBatch!, pixel!, "NEW CAREER", 546, 255, 2, startMenuSelection == 1 ? Color.Goldenrod : Color.White);
+        PixelFont.Draw(spriteBatch!, pixel!, "RESTART FIRST SHIFT", 546, 295, 1, Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, "CLICK A CARD   OR Q/E CHOOSE + ENTER   ESC EXIT", 312, 420, 1, Color.Yellow);
+    }
+
+    private void DrawQuestJournal(CareerProgressionSnapshot progression)
+    {
+        DrawModalScrim();
+        DrawPanel(104, 55, 816, 490, new Color(17, 30, 38, 248), Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, $"FIRST SHIFT JOURNAL   LEVEL {progression.Level}   XP {progression.Experience}   ACTIVE {PaceLabel(progression.ActivePlayTicks)}", 132, 78, 2, Color.White, 75);
+        PixelFont.Draw(spriteBatch!, pixel!, "OUTCOMES UNLOCK WAYS OF SEEING AND ACTING; THEY DO NOT INCREASE MACHINE SPEED.", 132, 113, 1, Color.LightGray, 105);
+        var y = 146f;
+        foreach (var definition in DishStationFirstHoursContent.Quests)
+        {
+            var state = progression.Quest(definition.Id);
+            var active = progression.ActiveQuest == definition.Id;
+            var selected = selectedJournalQuest == (int)definition.Id;
+            var color = state.Complete ? Color.LightGreen : active ? Color.Yellow : new Color(102, 117, 121);
+            DrawRect(126, y - 5, 770, 42, active ? new Color(38, 51, 55) : new Color(23, 37, 43));
+            if (selected) DrawBorder(new RectangleF(126, y - 5, 770, 42), 2, Color.DeepSkyBlue);
+            PixelFont.Draw(spriteBatch!, pixel!, state.Complete ? PaceLabel(state.ElapsedTicks) : active ? $"{state.Percent}%" : "LOCK", 140, y + 4, 1, color);
+            PixelFont.Draw(spriteBatch!, pixel!, definition.Title, 197, y + 4, 1, Color.White, 34);
+            PixelFont.Draw(spriteBatch!, pixel!, $"+{definition.ExperienceReward} XP  {CapabilityLabel(definition.CapabilityReward)}", 500, y + 4, 1, color, 49);
+            PixelFont.Draw(spriteBatch!, pixel!, definition.ObservableOutcome, 197, y + 21, 1, Color.LightGray, 92);
+            y += 43;
+        }
+        PixelFont.Draw(spriteBatch!, pixel!, "CLICK A ROW OR UP/DOWN TO SELECT", 132, 516, 1, Color.LightGray);
+        DrawPanel(620, 502, 116, 32, new Color(58, 52, 27), Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "DETAILS", 647, 513, 1, Color.Goldenrod);
+        DrawPanel(750, 502, 116, 32, new Color(31, 45, 51), Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, "CLOSE", 787, 513, 1, Color.LightGray);
+    }
+
+    private void DrawHelp(DishStationSnapshot snapshot)
+    {
+        DrawModalScrim();
+        DrawPanel(72, 42, 880, 516, new Color(15, 29, 36, 252), Color.DeepSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "SHIFT HANDBOOK", 104, 68, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, $"GUIDANCE  {snapshot.Onboarding.GuidanceMode.ToString().ToUpperInvariant()}   LEVEL {snapshot.Progression.Level}   F12 / ESC  CLOSE", 104, 101, 1, Color.LightGray);
+        DrawPanel(802, 74, 116, 38, new Color(31, 45, 51), Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, "CLOSE", 839, 88, 1, Color.LightGray);
+
+        DrawPanel(98, 130, 828, 78, new Color(30, 42, 43, 248), Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "CURRENT OPPORTUNITY", 116, 146, 1, Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, OpportunityFor(snapshot.TutorialStage), 116, 171, 1, Color.White, 104);
+
+        PixelFont.Draw(spriteBatch!, pixel!, "WORK THE STATION", 104, 234, 1, Color.MediumTurquoise);
+        PixelFont.Draw(spriteBatch!, pixel!, "CLICK A FIXTURE  MOVE / WORK\nQ / E            SELECT STATION\nSPACE            MOVE / WORK\nTAB              CHANGE DISH", 104, 259, 1, Color.White, 37);
+        PixelFont.Draw(spriteBatch!, pixel!, "READ THE SYSTEM", 375, 234, 1, Color.CornflowerBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "J                QUEST JOURNAL\nV                CYCLE UNLOCKED LENSES\nL                PROCESS EVIDENCE\nF12              THIS HANDBOOK", 375, 259, 1, Color.White, 42);
+        PixelFont.Draw(spriteBatch!, pixel!, "MOVE THE VIEW", 694, 234, 1, new Color(220, 158, 239));
+        PixelFont.Draw(spriteBatch!, pixel!, "ARROWS           PAN\nZ / X            ZOOM\nC                CENTER", 694, 259, 1, Color.White, 31);
+
+        DrawPanel(98, 350, 828, 142, new Color(21, 36, 42, 248), Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, "CAPABILITIES AVAILABLE NOW", 116, 366, 1, Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, CapabilityHelp(snapshot), 116, 392, 1, Color.White, 102);
+        PixelFont.Draw(spriteBatch!, pixel!, "NEW ACTIONS APPEAR HERE ONLY AFTER THE PROBLEM THAT MAKES THEM USEFUL.", 116, 472, 1, Color.LightGray, 102);
+
+        var tools = DeveloperToolsAvailable
+            ? "F1  SANDBOX TOOLS AVAILABLE"
+            : "SANDBOX TOOLS UNLOCK AFTER THE FIRST SHIFT";
+        PixelFont.Draw(spriteBatch!, pixel!, tools, 104, 520, 1, DeveloperToolsAvailable ? Color.Goldenrod : Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, "HELP EXPLAINS CONTROLS.\nTHE WORLD STILL PROVIDES THE EVIDENCE.", 510, 512, 1, Color.LightGray, 48);
+    }
+
+    private static string CapabilityHelp(DishStationSnapshot snapshot)
+    {
+        var progression = snapshot.Progression;
+        var lines = new List<string> { "L / V  PROCESS AND STATE EVIDENCE" };
+        if (progression.IsUnlocked(CareerCapability.LayoutEditor)) lines.Add("G / M  FLOW CELL AND FIXTURE LAYOUT");
+        if (progression.IsUnlocked(CareerCapability.KnowledgeLens)) lines.Add("N / T / Y  DELEGATE, TRANSFER, PRIORITIZE");
+        if (progression.IsUnlocked(CareerCapability.ExceptionNotebook)) lines.Add("U  RECORD THE DISCOVERED EXCEPTION");
+        if (progression.IsUnlocked(CareerCapability.AutomationWorkbench)) lines.Add("A / S  AUTOMATE, THEN CORROBORATE STATE");
+        if (progression.IsUnlocked(CareerCapability.RuntimeTrace)) lines.Add("I / P / D  INSPECT, REPLAY, TRACE");
+        if (snapshot.TutorialStage is DishTutorialStage.ShiftReview or DishTutorialStage.ValidateShift) lines.Add("W  OPEN OR RETRY THE LIVE RELIABILITY WINDOW");
+        if (progression.IsUnlocked(CareerCapability.ShiftScorecard)) lines.Add("K  FIRST-SHIFT SCORECARD");
+        return string.Join('\n', lines.Take(6));
+    }
+
+    private static string OpportunityFor(DishTutorialStage stage) => stage switch
+    {
+        DishTutorialStage.RestockFirstDish => "FOLLOW ONE PLATE THROUGH EVERY VISIBLE WORK STATE; CLICK A FIXTURE AGAIN WHEN YOU ARRIVE.",
+        DishTutorialStage.EnableDinnerRush => "SERVICE HAS SUPPLY. R TO OPEN DINNER DEMAND AND WATCH WHAT CHANGES.",
+        DishTutorialStage.AwaitServiceShortage => "KEEP WORK MOVING, BUT WATCH THE DISH SERVICE ACTUALLY NEEDS.",
+        DishTutorialStage.InspectShortage or DishTutorialStage.ChooseBottleneck => "L OPENS QUEUE EVIDENCE. SELECT A STATION AND B RECORDS YOUR CONSTRAINT HYPOTHESIS.",
+        DishTutorialStage.ImproveLayout => "G TRIES A COMPACT FLOW CELL; M OPENS THE FREEFORM LAYOUT SANDBOX.",
+        DishTutorialStage.ValidateBottleneck or DishTutorialStage.AwaitValidationDemand => "RUN THE SCARCE DISH THROUGH THE SAME STATES AND WATCH WHETHER SERVICE CONSUMES IT.",
+        DishTutorialStage.InviteNewHire or DishTutorialStage.TrainNewHire => "N BRINGS THE WORKER ON SHIFT; T TRANSFERS THE PROCESS YOU HAVE MADE EXPLICIT.",
+        DishTutorialStage.ObserveNewHire or DishTutorialStage.DocumentGlassPriority or DishTutorialStage.ValidateDelegation => "WATCH THE WRITTEN PROCESS FAIL UNDER RUSH DEMAND; Y ADDS THE MISSING GLASS PRIORITY.",
+        DishTutorialStage.ObserveRareTray or DishTutorialStage.DocumentRareTray or DishTutorialStage.ValidateRareTray => "WATCH THE UNCOMMON TRAY CONSEQUENCE; U RECORDS ITS HANDLING EXCEPTION.",
+        DishTutorialStage.OfferAutomation or DishTutorialStage.ObserveAutomation => "A ENABLES THE OFFERED REPORTED-READY RULE. OBSERVE SEVERAL REAL CYCLES.",
+        DishTutorialStage.InvestigateAutomation or DishTutorialStage.ReplayAutomation => "I INSPECTS THE FIRST DIVERGENCE; P REPLAYS THE CAPTURED DECISION.",
+        DishTutorialStage.RefineAutomation or DishTutorialStage.ValidateAutomation or DishTutorialStage.ValidateRegression => "S CORROBORATES REPORTED READY WITH PHYSICAL STATE; P RETESTS THE CAPTURED CASE.",
+        DishTutorialStage.ShiftReview => "STAGE CLEAN GLASSES, THEN W OPENS THE LIVE RELIABILITY WINDOW.",
+        DishTutorialStage.ValidateShift => "KEEP THE WHOLE STATION SUPPLIED THROUGH THREE LIVE DEMAND CHECKS.",
+        DishTutorialStage.EpisodeComplete => "K OPENS THE FROZEN SHIFT SCORECARD; F1 OPENS POST-SHIFT SANDBOX TOOLS.",
+        _ => "OBSERVE WHAT CHANGED, THEN CHOOSE AN ACTION THAT COULD AFFECT THE OUTCOME.",
+    };
+
+    private void DrawQuestDetail(CareerProgressionSnapshot progression)
+    {
+        var definition = DishStationFirstHoursContent.Quests[selectedJournalQuest];
+        var state = progression.Quest(definition.Id);
+        var active = progression.ActiveQuest == definition.Id;
+        var statusColor = state.Complete ? Color.LightGreen : active ? Color.Yellow : new Color(125, 140, 145);
+        DrawModalScrim();
+        DrawPanel(132, 65, 760, 470, new Color(17, 30, 38, 250), statusColor);
+        PixelFont.Draw(spriteBatch!, pixel!, $"QUEST {(int)definition.Id + 1}/{DishStationFirstHoursContent.Quests.Count}   {definition.Title}", 166, 94, 2, Color.White, 62);
+        PixelFont.Draw(spriteBatch!, pixel!, state.Complete ? "COMPLETED" : active ? $"ACTIVE  {state.Percent}%" : "LOCKED", 166, 132, 1, statusColor);
+        PixelFont.Draw(spriteBatch!, pixel!, $"+{definition.ExperienceReward} XP   {CapabilityLabel(definition.CapabilityReward)}", 520, 132, 1, statusColor, 48);
+
+        PixelFont.Draw(spriteBatch!, pixel!, "SITUATION", 166, 174, 1, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, definition.Situation.ToUpperInvariant(), 166, 195, 1, Color.White, 91);
+        PixelFont.Draw(spriteBatch!, pixel!, "OUTCOME", 166, 244, 1, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, definition.ObservableOutcome.ToUpperInvariant(), 166, 265, 1, Color.White, 91);
+        PixelFont.Draw(spriteBatch!, pixel!, state.Complete ? "WHAT THE CONSEQUENCE REVEALED" : "DISCOVERY RECORD", 166, 315, 1, state.Complete ? Color.LightGreen : Color.Goldenrod);
+        var discovery = state.Complete
+            ? definition.Discovery.ToUpperInvariant()
+            : active
+                ? "COMPLETE THE OUTCOME TO RECORD WHAT THE EVIDENCE REVEALS."
+                : "THIS RECORD OPENS AFTER THE QUEST BECOMES ACTIVE AND ITS OUTCOME IS OBSERVED.";
+        DrawPanel(166, 340, 692, 76, new Color(23, 37, 43), state.Complete ? Color.LightGreen : new Color(90, 104, 109));
+        PixelFont.Draw(spriteBatch!, pixel!, discovery, 184, 360, 1, state.Complete ? Color.White : Color.LightGray, 88);
+
+        var timing = state.StartedAtTick < 0
+            ? "NOT STARTED"
+            : state.Complete
+                ? $"ACTIVE {PaceLabel(state.ElapsedTicks)}   T{state.StartedAtTick} TO T{state.CompletedAtTick}"
+                : $"ACTIVE {PaceLabel(state.ElapsedTicks)}   STARTED T{state.StartedAtTick}";
+        PixelFont.Draw(spriteBatch!, pixel!, timing, 166, 447, 1, Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, "Q/E OR UP/DOWN  CHANGE QUEST", 166, 500, 1, Color.LightGray);
+        DrawPanel(620, 486, 116, 34, new Color(58, 52, 27), Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "BACK", 659, 498, 1, Color.Goldenrod);
+        DrawPanel(750, 486, 116, 34, new Color(31, 45, 51), Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, "CLOSE", 787, 498, 1, Color.LightGray);
+    }
+
+    private void DrawShiftReport(DishStationSnapshot snapshot)
+    {
+        var progression = snapshot.Progression;
+        var report = snapshot.ShiftReport;
+        var completed = progression.Quests.Count(quest => quest.Complete);
+        DrawModalScrim();
+        DrawPanel(58, 38, 908, 524, new Color(14, 28, 34, 252), Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, "FIRST SHIFT REPORT", 88, 66, 2, Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, $"LEVEL {progression.Level}   XP {progression.Experience}   ACTIVE {PaceLabel(progression.ActivePlayTicks)}   OUTCOMES {completed}/{progression.Quests.Count}", 88, 101, 1, Color.White);
+        PixelFont.Draw(spriteBatch!, pixel!, "THE SCORECARD SUMMARIZES OBSERVED CONSEQUENCES; IT DOES NOT GRADE BUTTON PRESSES.", 88, 123, 1, Color.LightGray, 112);
+        FlushReportBatch();
+
+        DrawPanel(84, 154, 260, 218, new Color(24, 42, 47, 245), Color.MediumTurquoise);
+        PixelFont.Draw(spriteBatch!, pixel!, "OPERATING OUTCOME", 102, 172, 1, Color.MediumTurquoise);
+        PixelFont.Draw(spriteBatch!, pixel!, $"RELIABILITY   {snapshot.ShiftTrial.Status.ToString().ToUpperInvariant()}\nDEMAND CHECKS {snapshot.ShiftTrial.SuccessfulDemandChecks}/{snapshot.ShiftTrial.TargetDemandChecks}\nATTEMPTS      {snapshot.ShiftTrial.Attempts}\nSHORTAGES     {report.ServiceShortages} HISTORICAL\nDISHES READY  {report.CompletedDishes}", 102, 205, 1, Color.White, 34);
+        PixelFont.Draw(spriteBatch!, pixel!, "READINESS IS AN OBSERVED WINDOW,\nNOT A CLAIM THAT FAILURE IS GONE.", 102, 326, 1, Color.LightGray, 34);
+        FlushReportBatch();
+
+        DrawPanel(368, 154, 276, 218, new Color(31, 37, 49, 245), Color.CornflowerBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "EVIDENCE RETAINED", 386, 172, 1, Color.CornflowerBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, $"ROUTE       {report.BaselineRouteSteps} -> {report.ValidatedRouteSteps} STEPS\nFINAL       {report.FinalRouteSteps} STEPS\nWORKER      {report.WorkerActions} ACTIONS\nREWORK      {report.TrayReworkIncidents} OBSERVED\nAUTO STARTS {report.AutomatedStarts}\nINCIDENTS   {report.AutomationIncidents}\nPREVENTED   {report.PreventedUnsafeStarts}", 386, 205, 1, Color.White, 36);
+        FlushReportBatch();
+
+        DrawPanel(668, 154, 272, 218, new Color(41, 35, 49, 245), new Color(195, 133, 219));
+        PixelFont.Draw(spriteBatch!, pixel!, "CAPABILITY EARNED", 686, 172, 1, new Color(220, 158, 239));
+        PixelFont.Draw(spriteBatch!, pixel!, "SHIFT SCORECARD", 686, 203, 2, Color.White, 28);
+        PixelFont.Draw(spriteBatch!, pixel!, "FLOW\nSEE THE CONSTRAINT.\n\nKNOWLEDGE\nWRITE THE EXCEPTION.\n\nAUTOMATION\nCORROBORATE STATE.\n\nOWNERSHIP\nPROVE THE OUTCOME.", 686, 243, 1, Color.LightGray, 32);
+        FlushReportBatch();
+
+        DrawPanel(84, 394, 856, 124, new Color(20, 35, 38, 248), Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "PLAYTEST DEBRIEF / ANSWER WITHOUT OPENING THE JOURNAL", 102, 412, 1, Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "1  WHAT CONSTRAINED GLASS SERVICE, AND WHAT EVIDENCE SHOWED IT?\n2  WHICH UNWRITTEN ASSUMPTIONS FAILED WHEN WORK WAS DELEGATED OR AUTOMATED?\n3  WHY DID THE REPLAY AND LIVE WINDOW PROVIDE STRONGER EVIDENCE THAN A HAPPY PATH?", 102, 442, 1, Color.White, 105);
+        DrawPanel(784, 526, 148, 28, new Color(27, 54, 42), Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, "CLOSE REPORT", 808, 536, 1, Color.LightGreen);
+    }
+
+    private void FlushReportBatch()
+    {
+        spriteBatch!.End();
+        var canvasTransform = Matrix.Scaling(canvasScale, canvasScale, 1) * Matrix.Translation(canvasOffsetX, canvasOffsetY, 0);
+        spriteBatch.Begin(GraphicsContext, canvasTransform);
+    }
+
+    private void DrawProgressionToasts(CareerProgressionSnapshot progression)
+    {
+        if (progressionReceiptSeconds <= 0 || progressionReceiptQuest is not { } completed) return;
+        var quest = DishStationFirstHoursContent.Quest(completed);
+        DrawPanel(614, 138, 396, 126, new Color(24, 42, 39, 245), Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, progressionReceiptLeveledUp ? $"OUTCOME COMPLETE  /  LEVEL {progressionReceiptLevel}" : "OUTCOME COMPLETE", 632, 151, 1, Color.LightGreen, 52);
+        PixelFont.Draw(spriteBatch!, pixel!, quest.Title, 632, 174, 2, Color.White, 43);
+        PixelFont.Draw(spriteBatch!, pixel!, $"+{quest.ExperienceReward} XP  /  {progression.Experience} TOTAL", 632, 204, 1, Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, $"UNLOCKED  {CapabilityLabel(quest.CapabilityReward)}", 632, 223, 1, Color.LightSkyBlue, 47);
+        PixelFont.Draw(spriteBatch!, pixel!, $"WHY NOW  {quest.UnlockRationale.ToUpperInvariant()}", 632, 242, 1, Color.LightGray, 47);
+    }
+
+    private static string CapabilityLabel(CareerCapability capability) => capability switch
+    {
+        CareerCapability.LayoutEditor => "LAYOUT TOOLS",
+        CareerCapability.KnowledgeLens => "KNOWLEDGE LENS",
+        CareerCapability.ExceptionNotebook => "EXCEPTION NOTES",
+        CareerCapability.AutomationWorkbench => "AUTOMATION",
+        CareerCapability.RuntimeTrace => "RUNTIME TRACE",
+        CareerCapability.ResponsibilityMap => "OWNERSHIP MAP",
+        CareerCapability.ShiftScorecard => "SHIFT SCORECARD",
+        _ => "STATE LENS",
+    };
+
+    private static string PaceLabel(long ticks)
+    {
+        var seconds = Math.Max(0, ticks / 10);
+        return $"{seconds / 60}:{seconds % 60:00}";
+    }
+
+    private void DrawRoom(DishStationSnapshot snapshot)
+    {
+        if (spriteBatch is null || pixel is null || diamond is null) return;
+
+        renderHighContrast = snapshot.Onboarding.HighContrast || (!snapshot.Onboarding.Complete && selectedHighContrast);
+        renderReducedMotion = snapshot.Onboarding.ReducedMotion || (!snapshot.Onboarding.Complete && selectedReducedMotion);
+        UpdateCanvasTransform();
+        var canvasTransform = Matrix.Scaling(canvasScale, canvasScale, 1) * Matrix.Translation(canvasOffsetX, canvasOffsetY, 0);
+        spriteBatch.Begin(GraphicsContext, canvasTransform);
+        DrawRect(0, 0, VirtualWidth, VirtualHeight, new Color(12, 22, 27));
+        IsometricStationScene.Draw(spriteBatch, pixel, diamond, snapshot, selectedKind, selectedWorkstation,
+            activeLens == SystemLens.Process, camera, visualPlayerCell, placementMode, placementFixture,
+            placementPreview, IsPlacementPreviewValid(), hoveredFixture, InteractionColor(), InteractionPulse());
+        DrawGameplayHud(snapshot);
+        DrawActiveLens(snapshot);
+        if (godMode) DrawGodTools();
+        if (benchmarkVisible && benchmarkResult is not null) DrawSyntheticBenchmark(benchmarkResult);
+        if (world.IntroComplete && !questJournalVisible && activeLens is SystemLens.Reality or SystemLens.Process) DrawInteractionCursor();
+        if (startMenuVisible) DrawStartMenu();
+        else if (!snapshot.Onboarding.Complete) DrawIntroWizard();
+        else
+        {
+            if (helpVisible) DrawHelp(snapshot);
+            else if (shiftReportVisible) DrawShiftReport(snapshot);
+            else if (questJournalVisible)
+            {
+                if (questDetailVisible) DrawQuestDetail(snapshot.Progression);
+                else DrawQuestJournal(snapshot.Progression);
+            }
+            if (!questJournalVisible && !shiftReportVisible) DrawProgressionToasts(snapshot.Progression);
+        }
+        spriteBatch.End();
+    }
+
+    private void DrawGameplayHud(DishStationSnapshot snapshot)
+    {
+        DrawPanel(14, 12, 380, 56, new Color(17, 30, 38, 226), Color.DeepSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "DISH STATION", 27, 23, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, $"LEVEL {snapshot.Progression.Level}  XP {snapshot.Progression.Experience}  {activeLens.ToString().ToUpperInvariant()}  T{snapshot.Tick.Value}  {(paused ? "PAUSED" : "LIVE")}", 27, 49, 1, paused ? Color.Yellow : Color.LightGray);
+        var xpFraction = snapshot.Progression.NextLevelExperience == 0
+            ? 1f
+            : (snapshot.Progression.Experience - snapshot.Progression.CurrentLevelExperience) /
+              (float)(snapshot.Progression.NextLevelExperience - snapshot.Progression.CurrentLevelExperience);
+        DrawRect(296, 51, 82, 5, new Color(43, 58, 63));
+        DrawRect(296, 51, 82 * Math.Clamp(xpFraction, 0, 1), 5, Color.LightGreen);
+
+        var (serviceLabel, serviceAccent) = snapshot.ShiftTrial.Status switch
+        {
+            ShiftTrialStatus.Running => ("RELIABILITY WINDOW", Color.Yellow),
+            ShiftTrialStatus.Failed => ("WINDOW FAILED", Color.OrangeRed),
+            ShiftTrialStatus.Passed => ("WINDOW PASSED", Color.LightGreen),
+            _ when snapshot.ServiceShortages > 0 => ("SERVICE RECORD", Color.Orange),
+            _ => ("SERVICE SUPPLIED", Color.LightGreen),
+        };
+        DrawPanel(690, 12, 320, 72, new Color(17, 30, 38, 226), serviceAccent);
+        PixelFont.Draw(spriteBatch!, pixel!, serviceLabel, 704, 23, 1, serviceAccent);
+        PixelFont.Draw(spriteBatch!, pixel!, $"DONE {snapshot.Completed}  SHORT {snapshot.ServiceShortages}  RUSH {(snapshot.RushEnabled ? "ON" : "OFF")}", 704, 42, 1, Color.White);
+        var serviceDetail = snapshot.ShiftTrial.Status is ShiftTrialStatus.Running or ShiftTrialStatus.Failed or ShiftTrialStatus.Passed
+            ? $"WINDOW {snapshot.ShiftTrial.Status.ToString().ToUpperInvariant()}  {snapshot.ShiftTrial.SuccessfulDemandChecks}/{snapshot.ShiftTrial.TargetDemandChecks}  TRY {snapshot.ShiftTrial.Attempts}"
+            : $"{LayoutLabel(snapshot.Layout.Layout)} ROUTE {snapshot.Layout.EstimatedRouteSteps}  WALKED {snapshot.Layout.SandboxMovementSteps}";
+        PixelFont.Draw(spriteBatch!, pixel!, serviceDetail, 704, 60, 1, Color.LightGray);
+
+        var objectiveColor = snapshot.Progression.ActiveQuest is null ? Color.LightGreen : Color.Yellow;
+        DrawPanel(14, 76, 650, 52, new Color(17, 30, 38, 220), objectiveColor);
+        if (snapshot.Progression.ActiveQuest is { } activeQuest)
+        {
+            var quest = DishStationFirstHoursContent.Quest(activeQuest);
+            var progress = snapshot.Progression.Quest(activeQuest).Percent;
+            PixelFont.Draw(spriteBatch!, pixel!, $"QUEST  {quest.Title}  {progress}%", 27, 86, 1, objectiveColor, 75);
+            var prompt = snapshot.Onboarding.GuidanceMode switch
+            {
+                GuidanceMode.Guided => ObjectiveFor(snapshot.TutorialStage),
+                GuidanceMode.Contextual => quest.ObservableOutcome.ToUpperInvariant(),
+                _ => "OPEN J FOR THE OUTCOME; READ THE WORLD FOR WHAT CHANGED.",
+            };
+            PixelFont.Draw(spriteBatch!, pixel!, prompt, 27, 105, 1, Color.White, 100);
+        }
+        else
+        {
+            PixelFont.Draw(spriteBatch!, pixel!, "FIRST SHIFT ARC COMPLETE", 27, 88, 1, Color.LightGreen);
+            PixelFont.Draw(spriteBatch!, pixel!, "PRESS K FOR THE SHIFT REPORT OR J TO REVIEW INDIVIDUAL DISCOVERIES.", 27, 107, 1, Color.White, 100);
+        }
+
+        DrawPanel(14, 516, 996, 70, new Color(15, 27, 34, 235), selectedKind == DishKind.Glass ? Color.MediumTurquoise : selectedKind == DishKind.Tray ? Color.Goldenrod : Color.CornflowerBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Workstations[selectedWorkstation].Name}  /  {selectedKind.ToString().ToUpperInvariant()}", 28, 528, 1, Color.White);
+        var toolHint = DeveloperToolsAvailable ? "  F1 TOOLS" : "";
+        PixelFont.Draw(spriteBatch!, pixel!, $"CLICK WORK  Q/E SELECT  SPACE ACT  V LENS{toolHint}", 300, 528, 1, Color.LightGray, 55);
+        DrawPanel(716, 522, 88, 26, new Color(31, 45, 51), Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "J QUEST", 729, 531, 1, Color.Goldenrod);
+        DrawPanel(810, 522, 88, 26, new Color(31, 45, 51), Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "F12 HELP", 818, 531, 1, Color.LightSkyBlue);
+        DrawPanel(904, 522, 88, 26, new Color(31, 45, 51), Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, "K REPORT", 912, 531, 1, Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, string.IsNullOrWhiteSpace(commandFeedback) ? "READY" : commandFeedback, 28, 549, 1, Color.LightGray, 139);
+        if (snapshot.LatestNotification is { } note)
+            PixelFont.Draw(spriteBatch!, pixel!, $"{note.Title.ToUpperInvariant()}: {note.Message}", 28, 568, 1, Color.Yellow, 139);
+
+        if (placementMode) DrawPlacementTools(snapshot);
+    }
+
+    private void DrawPlacementTools(DishStationSnapshot snapshot)
+    {
+        var valid = IsPlacementPreviewValid();
+        var accent = valid ? Color.LightGreen : Color.OrangeRed;
+        DrawPanel(722, 96, 288, 132, new Color(20, 42, 35, 238), accent);
+        PixelFont.Draw(spriteBatch!, pixel!, "LAYOUT TOOLS", 738, 108, 2, accent);
+        PixelFont.Draw(spriteBatch!, pixel!, $"FIXTURE  {PlacementLabel(placementFixture)}\nCELL     {placementPreview.X},{placementPreview.Y}\nPREVIEW  {(valid ? "VALID" : "BLOCKED")}\nROUTE    {snapshot.Layout.EstimatedRouteSteps} STEPS", 738, 137, 1, Color.White, 34);
+        PixelFont.Draw(spriteBatch!, pixel!, "Q/E ITEM  ARROWS MOVE\nENTER PLACE  BACK UNDO\nH RESET  M CLOSE", 882, 137, 1, Color.LightGray, 17);
+    }
+
+    private void DrawGodTools()
+    {
+        if (activeLens is not (SystemLens.Reality or SystemLens.Process))
+        {
+            DrawPanel(32, 526, 960, 58, new Color(60, 22, 68, 245), new Color(214, 111, 232));
+            PixelFont.Draw(spriteBatch!, pixel!, "SANDBOX TOOLS", 48, 539, 2, new Color(232, 151, 245));
+            PixelFont.Draw(spriteBatch!, pixel!, "F2 DIRTY  F3 CLEAN  F4 RESET  F5 PAUSE  F6 STEP\nF7 FAULT  F8 LAYOUT  F9 100K  F10 SAVE  F11 LOAD", 270, 537, 1, Color.White, 62);
+            return;
+        }
+        DrawPanel(722, placementMode ? 238 : 96, 288, 146, new Color(60, 22, 68, 240), new Color(214, 111, 232));
+        var y = placementMode ? 250 : 108;
+        PixelFont.Draw(spriteBatch!, pixel!, "SANDBOX TOOLS", 738, y, 2, new Color(232, 151, 245));
+        PixelFont.Draw(spriteBatch!, pixel!, "F2 ADD DIRTY   F3 CLEAN\nF4 RESET       F5 PAUSE\nF6 STEP        F7 STICKY\nF8 LAYOUT      F9 100K\nF10 SAVE       F11 RESTORE", 738, y + 30, 1, Color.White, 36);
+    }
+
+    private void DrawPanel(float x, float y, float width, float height, Color fill, Color accent)
+    {
+        DrawRect(x + 5, y + 5, width, height, new Color(2, 7, 10, 150));
+        DrawRect(x, y, width, height, renderHighContrast ? new Color(2, 6, 8, 252) : fill);
+        DrawRect(x, y, renderHighContrast ? 6 : 4, height, accent);
+        if (renderHighContrast)
+        {
+            DrawRect(x, y, width, 2, accent);
+            DrawRect(x, y + height - 2, width, 2, accent);
+            DrawRect(x + width - 2, y, 2, height, accent);
+        }
+    }
+
+    private void DrawWorkstation(DishStationSnapshot snapshot, int index)
+    {
+        var station = Workstations[index];
+        var bounds = WorkstationBounds(index, snapshot.Layout.Layout);
+        DrawRect(bounds.X, bounds.Y, bounds.Width, bounds.Height, station.Color);
+        if (activeLens == SystemLens.Process && snapshot.Bottleneck == station.QueueState) DrawBorder(bounds, 4, Color.OrangeRed);
+        if (index == selectedWorkstation) DrawBorder(bounds, 5, Color.Yellow);
+        if (index == 4 && snapshot.Layout.Layout == DishStationLayout.UShapedCell) DrawBorder(bounds, 3, Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, station.Name, bounds.X + 12, bounds.Y + 12, 2, Color.White);
+
+        var counts = snapshot.At(station.QueueState);
+        if (station.Action == DishAction.StartWasher)
+        {
+            counts = new(
+                counts.Plates + snapshot.At(DishState.Washing).Plates,
+                counts.Glasses + snapshot.At(DishState.Washing).Glasses,
+                counts.Trays + snapshot.At(DishState.Washing).Trays);
+        }
+        PixelFont.Draw(spriteBatch!, pixel!, activeLens == SystemLens.Process ? $"{station.QueueState} P {counts.Plates} G {counts.Glasses} T {counts.Trays}" : $"P {counts.Plates} G {counts.Glasses} T {counts.Trays}", bounds.X + 12, bounds.Y + 42, 1, Color.LightGray);
+        if (activeLens == SystemLens.Process)
+        {
+            var metric = snapshot.MetricAt(station.QueueState);
+            PixelFont.Draw(spriteBatch!, pixel!, $"P {metric.TotalItemTicks} OLD {metric.OldestAge(selectedKind)} AVG {metric.AverageResidenceTicks(selectedKind)}", bounds.X + 12, bounds.Y + 58, 1, snapshot.Bottleneck == station.QueueState ? Color.OrangeRed : Color.LightGray);
+        }
+        DrawDishTokens(bounds.X + 12, bounds.Y + 78, counts);
+        if (index == selectedWorkstation) PixelFont.Draw(spriteBatch!, pixel!, "YOU", bounds.X + 125, bounds.Y + 96, 1, Color.Yellow);
+    }
+
+    private void DrawService(DishStationSnapshot snapshot)
+    {
+        var bounds = new RectangleF(570, 330, 175, 120);
+        DrawRect(bounds.X, bounds.Y, bounds.Width, bounds.Height, new Color(46, 82, 55));
+        PixelFont.Draw(spriteBatch!, pixel!, "SERVICE", bounds.X + 12, bounds.Y + 12, 2, Color.White);
+        var counts = snapshot.At(DishState.Available);
+        PixelFont.Draw(spriteBatch!, pixel!, $"AVAILABLE P {counts.Plates} G {counts.Glasses} T {counts.Trays}", bounds.X + 12, bounds.Y + 44, 1, Color.LightGray);
+        DrawDishTokens(bounds.X + 12, bounds.Y + 70, counts);
+    }
+
+    private void DrawNewHire(NewHireSnapshot worker)
+    {
+        var bounds = new RectangleF(40, 330, 265, 120);
+        DrawRect(bounds.X, bounds.Y, bounds.Width, bounds.Height, worker.Enabled ? new Color(77, 54, 92) : new Color(54, 49, 59));
+        PixelFont.Draw(spriteBatch!, pixel!, $"NEW HIRE A{worker.Id.Value} {(worker.Enabled ? "ACTIVE" : "OFF SHIFT")}", bounds.X + 12, bounds.Y + 12, 2, Color.White);
+        PixelFont.Draw(spriteBatch!, pixel!, $"FLOW {(worker.Specification.FlowDocumented ? "Y" : "N")} GLASS {(worker.Specification.RushGlassPriorityDocumented ? "Y" : "N")} TRAY {(worker.Specification.RareTrayHandlingDocumented ? "Y" : "N")}", bounds.X + 12, bounds.Y + 43, 1, Color.LightGray, 38);
+        PixelFont.Draw(spriteBatch!, pixel!, $"ACTIONS {worker.ActionsCompleted} P {worker.PlateActions} G {worker.GlassActions} T {worker.TrayActions}", bounds.X + 12, bounds.Y + 67, 1, Color.LightGray, 38);
+        PixelFont.Draw(spriteBatch!, pixel!, $"LAST {worker.LastAction?.ToString() ?? "WAITING"} {worker.LastKind?.ToString() ?? ""} REWORK {worker.TrayReworkIncidents}", bounds.X + 12, bounds.Y + 86, 1, worker.OmittedPriorityObserved ? Color.OrangeRed : Color.LightGray, 38);
+    }
+
+    private void DrawAutomation(AutomationSnapshot automation)
+    {
+        var bounds = new RectangleF(315, 330, 245, 120);
+        var color = automation.Incidents > 0 && automation.Halted ? new Color(105, 39, 37) : automation.Policy.Enabled ? new Color(42, 75, 91) : new Color(48, 55, 60);
+        DrawRect(bounds.X, bounds.Y, bounds.Width, bounds.Height, color);
+        PixelFont.Draw(spriteBatch!, pixel!, $"AUTO START {(automation.Policy.Enabled ? "ON" : "OFF")}", bounds.X + 12, bounds.Y + 12, 2, Color.White);
+        PixelFont.Draw(spriteBatch!, pixel!, $"REPORTED READY {(automation.ReportedReady ? "YES" : "NO")}  PHYSICAL READY {(automation.PhysicalReady ? "YES" : "NO")}", bounds.X + 12, bounds.Y + 43, 1, automation.ReportedReady != automation.PhysicalReady ? Color.OrangeRed : Color.LightGray, 35);
+        PixelFont.Draw(spriteBatch!, pixel!, $"INTERLOCK {(automation.Policy.RequirePhysicalReady ? "ON" : "OFF")} HALTED {(automation.Halted ? "YES" : "NO")}", bounds.X + 12, bounds.Y + 72, 1, Color.LightGray, 35);
+        PixelFont.Draw(spriteBatch!, pixel!, $"STARTS {automation.AutomatedStarts} INCIDENTS {automation.Incidents} PREVENTED {automation.PreventedUnsafeStarts}", bounds.X + 12, bounds.Y + 91, 1, Color.LightGray, 35);
+    }
+
+    private void DrawActiveLens(DishStationSnapshot snapshot)
+    {
+        if (activeLens is not (SystemLens.Reality or SystemLens.Process))
+            DrawModalScrim();
+        switch (activeLens)
+        {
+            case SystemLens.State: DrawStateLens(snapshot); break;
+            case SystemLens.Knowledge: DrawKnowledgeLens(snapshot); break;
+            case SystemLens.Automation: DrawAutomationLens(snapshot.Automation); break;
+            case SystemLens.Runtime: DrawIncidentTimeline(snapshot.Automation); break;
+            case SystemLens.Responsibility: DrawResponsibilityLens(snapshot); break;
+        }
+    }
+
+    private void DrawSyntheticBenchmark(SyntheticWorkResult result)
+    {
+        DrawModalScrim();
+        DrawLensFrame("10K OF 100K ACTOR PROJECTION", "THE SIMULATION UPDATED 100K ACTORS. THE CLIENT BATCHES A 10K REPRESENTATIVE SUBSET.", Color.MediumTurquoise);
+        for (var index = 0; index < result.RepresentativeStates.Length; index++)
+        {
+            var state = result.RepresentativeStates[index];
+            var column = (index + (int)(world.Tick.Value * (state + 1) % 100)) % 100;
+            var row = index / 100;
+            var color = state switch
+            {
+                0 => Color.CornflowerBlue,
+                1 => Color.MediumTurquoise,
+                2 => Color.Goldenrod,
+                3 => Color.LightGreen,
+                4 => Color.Orange,
+                5 => Color.LightSkyBlue,
+                _ => Color.White,
+            };
+            DrawRect(82 + column * 8.5f, 222 + row * 1.95f, 6.5f, 1.35f, color);
+        }
+        PixelFont.Draw(spriteBatch!, pixel!, $"ACTORS {result.ActorCount}  TICKS {result.Ticks}  TRANSITIONS {result.Transitions}  CHECKSUM {result.Checksum:X16}", 72, 428, 1, Color.White);
+    }
+
+    private void DrawLensFrame(string title, string question, Color accent)
+    {
+        var bounds = new RectangleF(32, 78, 960, 440);
+        DrawRect(bounds.X + 8, bounds.Y + 9, bounds.Width, bounds.Height, new Color(2, 7, 10, 190));
+        DrawRect(bounds.X, bounds.Y, bounds.Width, bounds.Height, new Color(19, 28, 37, 248));
+        DrawBorder(bounds, 4, accent);
+        DrawRect(32, 78, 960, 52, new Color(27, 40, 51, 250));
+        PixelFont.Draw(spriteBatch!, pixel!, title, 54, 91, 2, accent);
+        PixelFont.Draw(spriteBatch!, pixel!, "V NEXT LENS", 865, 98, 1, Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, question, 54, 142, 1, Color.LightGray, 121);
+        PixelFont.Draw(spriteBatch!, pixel!, "REALITY   PROCESS   STATE   KNOWLEDGE   AUTOMATION   RUNTIME   RESPONSIBILITY", 54, 177, 1, Color.White, 121);
+        DrawRect(54, 195, 916, 2, new Color(accent.R, accent.G, accent.B, 120));
+    }
+
+    private void DrawModalScrim() => DrawRect(0, 0, VirtualWidth, VirtualHeight, new Color(3, 8, 12, 205));
+
+    private void DrawStateLens(DishStationSnapshot snapshot)
+    {
+        DrawLensFrame("STATE LENS", "WHERE IS EACH DISH NOW, WHAT MOVED IT, AND WHICH TRANSITION COMES NEXT?", Color.CornflowerBlue);
+        for (var i = 0; i < DishStates.Length; i++)
+        {
+            var state = DishStates[i];
+            var x = 58 + i * 130;
+            var count = snapshot.At(state).For(selectedKind);
+            var color = count > 0 ? new Color(45, 86, 112) : new Color(42, 48, 55);
+            DrawRect(x, 225, 112, 72, color);
+            PixelFont.Draw(spriteBatch!, pixel!, StateLabel(state), x + 8, 237, 1, Color.White, 16);
+            PixelFont.Draw(spriteBatch!, pixel!, $"{selectedKind.ToString().ToUpperInvariant()} {count}", x + 8, 270, 1, count > 0 ? Color.LightGreen : Color.LightGray);
+            if (i < DishStates.Length - 1) DrawRect(x + 112, 257, 18, 6, Color.CornflowerBlue);
+        }
+
+        PixelFont.Draw(spriteBatch!, pixel!, $"WASHER REPORTED {(snapshot.Automation.ReportedReady ? "READY" : "NOT READY")}  PHYSICAL {(snapshot.Automation.PhysicalReady ? "READY" : "OCCUPIED")}", 60, 316, 1, snapshot.Automation.ReportedReady != snapshot.Automation.PhysicalReady ? Color.OrangeRed : Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, "RECENT AUTHORITATIVE TRANSITIONS", 60, 342, 1, Color.LightSkyBlue);
+        var first = Math.Max(0, snapshot.RecentTransitions.Count - 4);
+        var y = 366f;
+        for (var i = first; i < snapshot.RecentTransitions.Count; i++)
+        {
+            var transition = snapshot.RecentTransitions[i];
+            PixelFont.Draw(spriteBatch!, pixel!, $"T{transition.Tick.Value,-3} {transition.Kind,-5} {StateLabel(transition.From)} TO {StateLabel(transition.To)}  BY {TransitionCauseLabel(transition.Cause)}", 60, y, 1, Color.White);
+            y += 20;
+        }
+    }
+
+    private void DrawKnowledgeLens(DishStationSnapshot snapshot)
+    {
+        DrawLensFrame("KNOWLEDGE LENS", "WHO KNOWS WHICH OPERATING FACTS, AND WHICH ASSUMPTION IS STILL UNSAFE?", new Color(183, 111, 210));
+        DrawKnowledgeCard(60, "PLAYER / OBSERVED",
+            $"FLOW STATES       KNOWN\nBOTTLENECK        {(snapshot.BottleneckHypothesis is null ? "UNCONFIRMED" : snapshot.BottleneckHypothesis.ToString()!.ToUpperInvariant())}\nSTICKY SIGNAL     {(snapshot.Automation.Incident.Recorded ? "DISCOVERED" : "UNKNOWN")}",
+            snapshot.Automation.Incident.Recorded ? Color.LightGreen : Color.Yellow);
+        DrawKnowledgeCard(360, $"NEW HIRE A{snapshot.NewHire.Id.Value} / EXPLICIT",
+            $"DISH FLOW        {KnowledgeFlag(snapshot.NewHire.Specification.FlowDocumented)}\nRUSH PRIORITY    {KnowledgeFlag(snapshot.NewHire.Specification.RushGlassPriorityDocumented)}\nRARE TRAY        {KnowledgeFlag(snapshot.NewHire.Specification.RareTrayHandlingDocumented)}",
+            snapshot.NewHire.Specification.RareTrayHandlingDocumented ? Color.LightGreen : Color.Yellow);
+        DrawKnowledgeCard(660, "AUTO RULE / ASSUMES",
+            $"READY REPORT     TRUSTED\nPHYSICAL STATE   {(snapshot.Automation.Policy.RequirePhysicalReady ? "CORROBORATED" : "OMITTED")}\nMANUAL FALLBACK  RETAINED",
+            snapshot.Automation.Policy.RequirePhysicalReady ? Color.LightGreen : Color.OrangeRed);
+    }
+
+    private void DrawKnowledgeCard(float x, string title, string content, Color status)
+    {
+        DrawRect(x, 225, 275, 190, new Color(54, 45, 61));
+        PixelFont.Draw(spriteBatch!, pixel!, title, x + 12, 241, 1, Color.White, 38);
+        PixelFont.Draw(spriteBatch!, pixel!, content, x + 12, 282, 1, status, 38);
+    }
+
+    private void DrawAutomationLens(AutomationSnapshot automation)
+    {
+        DrawLensFrame("AUTOMATION LENS", "WHICH BOUNDED RESPONSIBILITY DID THE RULE TAKE, AND WHAT REMAINS MANUAL?", Color.DeepSkyBlue);
+        DrawAutomationNode(65, "INPUTS", $"RACK PRESENT\nREPORTED {(automation.ReportedReady ? "READY" : "NOT READY")}\nPHYSICAL {(automation.PhysicalReady ? "READY" : "OCCUPIED")}", automation.ReportedReady != automation.PhysicalReady ? Color.OrangeRed : Color.LightGray);
+        DrawRect(300, 282, 55, 8, Color.DeepSkyBlue);
+        DrawAutomationNode(355, "DECISION RULE", automation.Policy.Enabled
+            ? automation.Policy.RequirePhysicalReady ? "REPORT AND\nPHYSICAL READY" : "REPORT READY\nONLY"
+            : "AUTOMATION OFF", automation.Policy.RequirePhysicalReady ? Color.LightGreen : Color.Yellow);
+        DrawRect(590, 282, 55, 8, Color.DeepSkyBlue);
+        DrawAutomationNode(645, "EFFECT", $"START WASHER\nSTARTS {automation.AutomatedStarts}\nHALTED {(automation.Halted ? "YES" : "NO")}", automation.Halted ? Color.OrangeRed : Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, $"BOUNDARY: SOFTWARE OWNS ONLY THE START REQUEST.\nPEOPLE STILL LOAD, RECOVER, MAINTAIN, AND CAN WORK MANUALLY.  INCIDENTS {automation.Incidents}  PREVENTED {automation.PreventedUnsafeStarts}", 65, 391, 1, Color.White, 112);
+    }
+
+    private void DrawAutomationNode(float x, string title, string content, Color status)
+    {
+        DrawRect(x, 235, 235, 125, new Color(37, 64, 78));
+        PixelFont.Draw(spriteBatch!, pixel!, title, x + 12, 250, 1, Color.White);
+        PixelFont.Draw(spriteBatch!, pixel!, content, x + 12, 282, 1, status, 31);
+    }
+
+    private void DrawResponsibilityLens(DishStationSnapshot snapshot)
+    {
+        DrawLensFrame("RESPONSIBILITY / ARCHITECTURE", "WHICH CAPABILITY OWNS EACH OUTCOME, AND HOW FAR CAN A FAILURE SPREAD?", new Color(231, 184, 72));
+        DrawResponsibilityNode(60, "SERVICE", "CONSUMES\nCLEAN DISHES", new Color(46, 82, 55));
+        DrawRect(250, 274, 35, 8, Color.Goldenrod);
+        DrawResponsibilityNode(285, "DISH STATION", "OWNS FLOW\nAND SUPPLY", new Color(65, 66, 82));
+        DrawRect(475, 274, 35, 8, Color.Goldenrod);
+        DrawResponsibilityNode(510, "START RULE", "OWNS ONE\nDECISION", new Color(42, 75, 91));
+        DrawRect(700, 274, 35, 8, Color.Goldenrod);
+        DrawResponsibilityNode(735, "PHYSICAL WASHER", "OWNS CYCLE\nAND OCCUPANCY", new Color(47, 77, 102));
+        PixelFont.Draw(spriteBatch!, pixel!, $"PEOPLE: PLAYER DEFINES AND RECOVERS; NEW HIRE A{snapshot.NewHire.Id.Value} EXECUTES DOCUMENTED WORK.\nSIMULATION: AUTHORITATIVE STATE AND CONSEQUENCES.  CLIENT: OBSERVES AND COMMANDS.", 60, 375, 1, Color.White, 115);
+        PixelFont.Draw(spriteBatch!, pixel!, "BLAST RADIUS: STICKY READY CAN MISLEAD AUTO START, BUT CANNOT REWRITE PHYSICAL STATE.\nHALT AND MANUAL FALLBACK CONTAIN THE INCIDENT.", 60, 419, 1, Color.LightGreen, 115);
+    }
+
+    private void DrawResponsibilityNode(float x, string title, string content, Color color)
+    {
+        DrawRect(x, 235, 190, 110, color);
+        PixelFont.Draw(spriteBatch!, pixel!, title, x + 10, 250, 1, Color.White, 25);
+        PixelFont.Draw(spriteBatch!, pixel!, content, x + 10, 285, 1, Color.LightGray, 25);
+    }
+
+    private void SelectNextLens()
+    {
+        for (var offset = 1; offset <= SystemLenses.Length; offset++)
+        {
+            var candidate = SystemLenses[((int)activeLens + offset) % SystemLenses.Length];
+            if (!IsLensUnlocked(candidate)) continue;
+            activeLens = candidate;
+            commandFeedback = $"Opened {candidate} lens.";
+            UpdateWindowTitle();
+            return;
+        }
+    }
+
+    private bool IsLensUnlocked(SystemLens lens)
+    {
+        var progression = world.Snapshot().Progression;
+        return lens switch
+        {
+            SystemLens.Reality or SystemLens.Process => true,
+            SystemLens.State => progression.IsUnlocked(CareerCapability.StateLens),
+            SystemLens.Knowledge => progression.IsUnlocked(CareerCapability.KnowledgeLens),
+            SystemLens.Automation => progression.IsUnlocked(CareerCapability.AutomationWorkbench),
+            SystemLens.Runtime => world.Snapshot().Automation.Incident.Recorded || progression.IsUnlocked(CareerCapability.RuntimeTrace),
+            SystemLens.Responsibility => progression.IsUnlocked(CareerCapability.ResponsibilityMap),
+            _ => false,
+        };
+    }
+
+    private static string KnowledgeFlag(bool known) => known ? "DOCUMENTED" : "MISSING";
+
+    private static string PlacementLabel(DishStationFixture fixture) => fixture switch
+    {
+        DishStationFixture.DryRestock => "DRY + STOCK",
+        _ => fixture.ToString().ToUpperInvariant(),
+    };
+
+    private static string LayoutLabel(DishStationLayout layout) => layout switch
+    {
+        DishStationLayout.UShapedCell => "U-CELL",
+        DishStationLayout.Custom => "CUSTOM",
+        _ => "LINEAR",
+    };
+
+    private static RectangleF WorkstationBounds(int index, DishStationLayout layout) =>
+        index == 4 && layout == DishStationLayout.UShapedCell
+            ? new RectangleF(755, 330, 175, 120)
+            : Workstations[index].Bounds;
+
+    private static string StateLabel(DishState state) => state switch
+    {
+        DishState.WashedInMachine => "IN MACHINE",
+        DishState.CleanWet => "CLEAN WET",
+        _ => state.ToString().ToUpperInvariant(),
+    };
+
+    private static string TransitionCauseLabel(DishTransitionCause cause) => cause switch
+    {
+        DishTransitionCause.PlayerWork => "PLAYER",
+        DishTransitionCause.NewHireWork => "NEW HIRE",
+        DishTransitionCause.Automation => "AUTO RULE",
+        DishTransitionCause.WasherCycle => "WASHER",
+        DishTransitionCause.ServiceDemand => "SERVICE",
+        _ => cause.ToString().ToUpperInvariant(),
+    };
+
+    private void DrawIncidentTimeline(AutomationSnapshot automation)
+    {
+        DrawLensFrame("RUNTIME / INCIDENT TRACE", "FIND THE FIRST DIVERGENCE, REPLAY THE CAPTURED INPUTS, THEN VALIDATE THE GUARD.", Color.Orange);
+        PixelFont.Draw(spriteBatch!, pixel!, "D CLOSE   I INSPECT   P REPLAY CAPTURED INPUTS", 60, 203, 1, Color.LightGray);
+
+        if (!automation.Incident.Recorded)
+        {
+            PixelFont.Draw(spriteBatch!, pixel!, "NO AUTOMATION INCIDENT HAS BEEN CAPTURED.", 60, 235, 1, Color.White);
+            return;
+        }
+
+        var incident = automation.Incident;
+        PixelFont.Draw(spriteBatch!, pixel!, $"CAPTURE T{incident.OccurredAt.Value} {incident.Kind}  REPORTED {(incident.ReportedReady ? "YES" : "NO")}  PHYSICAL {(incident.PhysicalReady ? "YES" : "NO")}", 60, 217, 1, Color.OrangeRed);
+        PixelFont.Draw(spriteBatch!, pixel!, "EXPECTED: START ONLY WHEN THE MACHINE CAN ACCEPT A RACK", 535, 217, 1, Color.LightGray, 58);
+        PixelFont.Draw(spriteBatch!, pixel!, "OBSERVED: READY REPORT STAYED TRUE\nWHILE THE MACHINE WAS OCCUPIED", 535, 249, 1, Color.OrangeRed, 58);
+
+        var first = Math.Max(0, automation.Trace.Count - 7);
+        var y = 249f;
+        for (var i = first; i < automation.Trace.Count; i++)
+        {
+            var entry = automation.Trace[i];
+            var policy = entry.Policy.RequirePhysicalReady ? "SAFE" : entry.Policy.Enabled ? "REPORT" : "OFF";
+            var lineColor = entry.Outcome is AutomationTraceOutcome.UnsafeStartRequested or AutomationTraceOutcome.ReplayWouldStart
+                ? Color.OrangeRed
+                : entry.Outcome is AutomationTraceOutcome.UnsafeStartPrevented or AutomationTraceOutcome.ReplayPrevented
+                    ? Color.LightGreen
+                    : Color.White;
+            PixelFont.Draw(spriteBatch!, pixel!, $"T{entry.Tick.Value,-3} {TraceLabel(entry.Outcome),-20} {policy} R{(entry.ReportedReady ? "Y" : "N")} P{(entry.PhysicalReady ? "Y" : "N")}", 60, y, 1, lineColor);
+            y += 24;
+        }
+
+        PixelFont.Draw(spriteBatch!, pixel!, $"REPLAYS {incident.ReplayCount}  LAST {(incident.HasReplay ? incident.LastReplayWouldStart ? "WOULD START" : "PREVENTED" : "NOT RUN")}  REGRESSION {(incident.RegressionPassed ? "PASS" : "OPEN")}", 535, 313, 1, incident.RegressionPassed ? Color.LightGreen : Color.Yellow, 58);
+        PixelFont.Draw(spriteBatch!, pixel!, "THE REPLAY USES THE EXACT RECORDED SIGNAL\nAND PHYSICAL STATE; ONLY THE SELECTED POLICY CHANGES.", 535, 355, 1, Color.LightGray, 58);
+    }
+
+    private void DrawDishTokens(float x, float y, DishCounts counts)
+    {
+        for (var i = 0; i < Math.Min(counts.Plates, 8); i++) DrawRect(x + i * 16, y, 12, 12, Color.CornflowerBlue);
+        for (var i = 0; i < Math.Min(counts.Glasses, 8); i++) DrawRect(x + i * 16, y + 20, 12, 12, Color.MediumTurquoise);
+        for (var i = 0; i < Math.Min(counts.Trays, 8); i++) DrawRect(x + 135 + i * 8, y + 20, 6, 12, Color.Goldenrod);
+    }
+
+    private static string TraceLabel(AutomationTraceOutcome outcome) => outcome switch
+    {
+        AutomationTraceOutcome.PolicyConfigured => "POLICY CHANGED",
+        AutomationTraceOutcome.AutomaticStart => "AUTO START",
+        AutomationTraceOutcome.UnsafeStartRequested => "UNSAFE REQUEST",
+        AutomationTraceOutcome.UnsafeStartPrevented => "GUARD PREVENTED",
+        AutomationTraceOutcome.IncidentInspected => "FIRST DIVERGENCE",
+        AutomationTraceOutcome.ReplayWouldStart => "REPLAY REPRODUCED",
+        AutomationTraceOutcome.ReplayPrevented => "REPLAY PREVENTED",
+        _ => outcome.ToString().ToUpperInvariant(),
+    };
+
+    private void DrawFlowArrows(DishStationLayout layout, Color color)
+    {
+        DrawRect(215, 218, 30, 10, color);
+        DrawRect(420, 218, 30, 10, color);
+        DrawRect(625, 218, 30, 10, color);
+        DrawRect(layout == DishStationLayout.UShapedCell ? 775 : 825, 218, 10, 172, color);
+        DrawRect(745, 385, layout == DishStationLayout.UShapedCell ? 10 : 60, 10, color);
+    }
+
+    private void DrawBorder(RectangleF bounds, float width, Color color)
+    {
+        DrawRect(bounds.X, bounds.Y, bounds.Width, width, color);
+        DrawRect(bounds.X, bounds.Bottom - width, bounds.Width, width, color);
+        DrawRect(bounds.X, bounds.Y, width, bounds.Height, color);
+        DrawRect(bounds.Right - width, bounds.Y, width, bounds.Height, color);
+    }
+
+    private void SelectWorkstation(int offset)
+    {
+        selectedWorkstation = (selectedWorkstation + offset + Workstations.Length) % Workstations.Length;
+        commandFeedback = $"Selected {Workstations[selectedWorkstation].Name}. Press Space to work.";
+        UpdateWindowTitle();
+    }
+
+    private void SelectWorkstationFromMouse()
+    {
+        var left = Input.IsMouseButtonPressed(MouseButton.Left);
+        var right = Input.IsMouseButtonPressed(MouseButton.Right);
+        if (!left && !right) return;
+        var point = VirtualMousePosition();
+        if (placementMode && left)
+        {
+            var previewTarget = IsometricStationScene.FloorHitTest(point.X, point.Y, camera);
+            if (previewTarget is { } target)
+            {
+                placementPreview = target;
+                lastPointerAction = $"PREVIEW:{target.X},{target.Y}";
+                ConfirmPlacement();
+            }
+            return;
+        }
+        if (right)
+        {
+            var destination = IsometricStationScene.FloorHitTest(point.X, point.Y, camera);
+            if (destination is { } moveTarget)
+            {
+                lastPointerAction = $"FLOOR:MOVE";
+                Execute(new MovePlayerCommand(world.Tick, moveTarget));
+            }
+            return;
+        }
+        var hit = IsometricStationScene.HitTest(point.X, point.Y, world.Placements, camera);
+        if (hit is not { } fixture)
+        {
+            var floorTarget = IsometricStationScene.FloorHitTest(point.X, point.Y, camera);
+            if (floorTarget is { } target)
+            {
+                lastPointerAction = "FLOOR:MOVE";
+                Execute(new MovePlayerCommand(world.Tick, target));
+            }
+            return;
+        }
+        if (fixture == DishStationFixture.Service)
+        {
+            var available = world.At(DishState.Available);
+            lastPointerAction = "Service:INSPECT";
+            commandFeedback = $"SERVICE: P{available.Plates} G{available.Glasses} T{available.Trays} available; {world.Snapshot().ServiceShortages} shortages.";
+            UpdateWindowTitle();
+            return;
+        }
+        var index = (int)fixture;
+        selectedWorkstation = index;
+        var fixtureCell = world.Placements.At(fixture);
+        if (world.PlayerCell != fixtureCell)
+        {
+            lastPointerAction = $"{fixture}:MOVE";
+            Execute(new MovePlayerCommand(world.Tick, fixtureCell));
+        }
+        else
+        {
+            lastPointerAction = $"{fixture}:WORK";
+            Perform(Workstations[index].Action);
+        }
+    }
+
+    private float InteractionPulse() => renderReducedMotion ? 0 : (MathF.Sin(interactionTime * 6f) + 1f) * 2f;
+
+    private string InteractionLabel()
+    {
+        if (placementMode) return IsPlacementPreviewValid() ? "PLACE" : "BLOCKED";
+        if (hoveredFixture == DishStationFixture.Service) return "INSPECT";
+        if (hoveredFixture is { } fixture)
+            return world.PlayerCell == world.Placements.At(fixture) ? "WORK" : "MOVE";
+        return IsometricStationScene.FloorHitTest(VirtualMousePosition().X, VirtualMousePosition().Y, camera) is null ? "" : "MOVE";
+    }
+
+    private Color InteractionColor() => InteractionLabel() switch
+    {
+        "WORK" or "PLACE" => Color.LightGreen,
+        "BLOCKED" => Color.OrangeRed,
+        "INSPECT" => Color.Goldenrod,
+        _ => Color.DeepSkyBlue,
+    };
+
+    private void DrawInteractionCursor()
+    {
+        var point = VirtualMousePosition();
+        var label = InteractionLabel();
+        if (string.IsNullOrEmpty(label) || point.X < 0 || point.X > VirtualWidth || point.Y < 0 || point.Y > VirtualHeight) return;
+        var color = InteractionColor();
+        var radius = 9 + InteractionPulse();
+        var iconName = label switch
+        {
+            "WORK" => "hand_point",
+            "INSPECT" => "look_a",
+            "BLOCKED" => "disabled",
+            "PLACE" => "target_round_a",
+            _ => "pointer_a",
+        };
+        if (interactionIcons.TryGetValue(iconName, out var icon))
+            spriteBatch!.Draw(icon, new RectangleF(point.X - 10, point.Y - 10, 20, 20), color, Color.Black);
+        const float stroke = 2;
+        const float arm = 7;
+        DrawRect(point.X - radius, point.Y - radius, arm, stroke, color);
+        DrawRect(point.X - radius, point.Y - radius, stroke, arm, color);
+        DrawRect(point.X + radius - arm, point.Y - radius, arm, stroke, color);
+        DrawRect(point.X + radius - stroke, point.Y - radius, stroke, arm, color);
+        DrawRect(point.X - radius, point.Y + radius - stroke, arm, stroke, color);
+        DrawRect(point.X - radius, point.Y + radius - arm, stroke, arm, color);
+        DrawRect(point.X + radius - arm, point.Y + radius - stroke, arm, stroke, color);
+        DrawRect(point.X + radius - stroke, point.Y + radius - arm, stroke, arm, color);
+        var labelX = Math.Min(point.X + radius + 5, VirtualWidth - 82);
+        var labelY = Math.Min(point.Y + radius + 3, VirtualHeight - 22);
+        DrawRect(labelX - 3, labelY - 3, 76, 18, new Color(12, 22, 27, 230));
+        PixelFont.Draw(spriteBatch!, pixel!, label, labelX, labelY, 1, color, 12);
+    }
+
+    private Texture LoadInteractionIcon(string name)
+    {
+        var assembly = typeof(DishStationGame).Assembly;
+        var resourceName = assembly.GetManifestResourceNames()
+            .Single(resource => resource.EndsWith($".{name}.png", StringComparison.Ordinal));
+        using var stream = assembly.GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Embedded cursor asset '{resourceName}' was not found.");
+        return Texture.Load(GraphicsDevice, stream, TextureFlags.ShaderResource, GraphicsResourceUsage.Immutable, true);
+    }
+
+    private Vector2 VirtualMousePosition()
+    {
+        UpdateCanvasTransform();
+        var mouse = Input.MousePosition;
+        var physicalX = mouse.X * GraphicsDevice.Presenter.BackBuffer.Width;
+        var physicalY = mouse.Y * GraphicsDevice.Presenter.BackBuffer.Height;
+        return new Vector2((physicalX - canvasOffsetX) / canvasScale, (physicalY - canvasOffsetY) / canvasScale);
+    }
+
+    private void UpdateCanvasTransform()
+    {
+        var width = GraphicsDevice.Presenter.BackBuffer.Width;
+        var height = GraphicsDevice.Presenter.BackBuffer.Height;
+        canvasScale = Math.Max(0.5f, Math.Min(width / VirtualWidth, height / VirtualHeight));
+        canvasOffsetX = (width - VirtualWidth * canvasScale) * 0.5f;
+        canvasOffsetY = (height - VirtualHeight * canvasScale) * 0.5f;
+    }
+
+    private void SelectPlacementFixture(int offset)
+    {
+        var count = Enum.GetValues<DishStationFixture>().Length;
+        placementFixture = (DishStationFixture)(((int)placementFixture + offset + count) % count);
+        placementPreview = world.Placements.At(placementFixture);
+        commandFeedback = $"Placing {placementFixture}. Move the preview, then press Enter.";
+        UpdateWindowTitle();
+    }
+
+    private void ShowLockedCapability(CareerCapability capability)
+    {
+        var quest = DishStationFirstHoursContent.Quests.Single(definition => definition.CapabilityReward == capability);
+        commandFeedback = $"LOCKED: complete {quest.Title} to unlock {CapabilityLabel(capability)}.";
+        UpdateWindowTitle();
+    }
+
+    private void MovePlacementPreview(int x, int y)
+    {
+        placementPreview = new FloorCell(
+            Math.Clamp(placementPreview.X + x, FloorCell.MinimumX, FloorCell.MaximumX),
+            Math.Clamp(placementPreview.Y + y, FloorCell.MinimumY, FloorCell.MaximumY));
+        commandFeedback = IsPlacementPreviewValid() ? "Placement preview is valid." : "That floor cell is occupied.";
+        UpdateWindowTitle();
+    }
+
+    private bool IsPlacementPreviewValid() =>
+        placementPreview.IsInsideDishStation && !world.Placements.IsOccupied(placementPreview, placementFixture);
+
+    private void ConfirmPlacement()
+    {
+        if (!placementMode)
+        {
+            commandFeedback = "Open placement mode with M first.";
+            UpdateWindowTitle();
+            return;
+        }
+        if (!IsPlacementPreviewValid())
+        {
+            commandFeedback = "BLOCKED: another fixture occupies that floor cell.";
+            UpdateWindowTitle();
+            return;
+        }
+        var previous = world.Placements.At(placementFixture);
+        var result = world.ExecuteNow(new PlaceDishStationFixtureCommand(world.Tick, placementFixture, placementPreview));
+        commandFeedback = result.Success ? result.Message : $"BLOCKED: {result.Message}";
+        if (result.Success && previous != placementPreview) placementUndo.Push(new(placementFixture, previous));
+        UpdateWindowTitle();
+    }
+
+    private void UndoPlacement()
+    {
+        if (!placementUndo.TryPop(out var undo))
+        {
+            commandFeedback = "Nothing to undo in this placement session.";
+            UpdateWindowTitle();
+            return;
+        }
+        Execute(new PlaceDishStationFixtureCommand(world.Tick, undo.Fixture, undo.Cell));
+        placementFixture = undo.Fixture;
+        placementPreview = undo.Cell;
+    }
+
+    private void MoveCamera(float x, float y)
+    {
+        camera = camera.Pan(x, y);
+        commandFeedback = "Camera moved across the sandbox floor.";
+        UpdateWindowTitle();
+    }
+
+    private void ZoomCamera(float amount)
+    {
+        camera = camera.ZoomBy(amount);
+        commandFeedback = $"Camera zoom {camera.Zoom:0.00}.";
+        UpdateWindowTitle();
+    }
+
+    private void DrawRect(float x, float y, float width, float height, Color color) =>
+        spriteBatch!.Draw(pixel!, new RectangleF(x, y, width, height), color, Color.Black);
+
+    private void UpdateWindowTitle()
+    {
+        var note = world.Notifications.Count == 0 ? "Clock in — press 1 to scrape" : $"{world.Notifications[^1].Title}: {world.Notifications[^1].Message}";
+        var width = GraphicsDevice.Presenter.BackBuffer.Width;
+        var height = GraphicsDevice.Presenter.BackBuffer.Height;
+        var pointer = hoveredFixture?.ToString() ?? "FLOOR";
+        var progression = world.Snapshot().Progression;
+        var menu = startMenuVisible ? newCareerConfirmation ? "confirm-new" : startMenuSelection == 0 ? "continue" : "new" : "closed";
+        var comfort = world.IntroComplete
+            ? $"motion={(world.Snapshot().Onboarding.ReducedMotion ? "reduced" : "full")},contrast={(world.Snapshot().Onboarding.HighContrast ? "high" : "standard")}"
+            : $"motion={(selectedReducedMotion ? "reduced" : "full")},contrast={(selectedHighContrast ? "high" : "standard")}";
+        var trial = world.Snapshot().ShiftTrial;
+        var receipt = progressionReceiptSeconds > 0 && progressionReceiptQuest is { } receiptQuest
+            ? $"{receiptQuest}:L{progressionReceiptLevel}"
+            : "none";
+        Window.Title = $"The Automation Game — [menu={menu}] [save={saveStatus}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={questJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={questDetailVisible}] [report={shiftReportVisible}] [help={helpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [ui={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] {note}";
+    }
+
+    private static string ObjectiveFor(DishTutorialStage stage) => stage switch
+    {
+        DishTutorialStage.RestockFirstDish => "RESTOCK ONE CLEAN PLATE",
+        DishTutorialStage.EnableDinnerRush => "ENABLE THE DINNER RUSH WITH R",
+        DishTutorialStage.AwaitServiceShortage => "KEEP UP AND WATCH SERVICE SUPPLY",
+        DishTutorialStage.InspectShortage => "PRESS L TO INSPECT QUEUE EVIDENCE",
+        DishTutorialStage.ChooseBottleneck => "SELECT THE CONSTRAINING WORKSTATION AND PRESS B",
+        DishTutorialStage.ImproveLayout => "PRESS G TO ARRANGE A SHORTER U-SHAPED FLOW CELL",
+        DishTutorialStage.ValidateBottleneck => "MOVE ONE GLASS THROUGH THE FULL PROCESS",
+        DishTutorialStage.AwaitValidationDemand => "WATCH WHETHER SERVICE CONSUMES THE CLEAN GLASS",
+        DishTutorialStage.InviteNewHire => "PRESS N TO BRING THE NEW HIRE ON SHIFT",
+        DishTutorialStage.TrainNewHire => "PRESS T TO TRANSFER THE HAPPY-PATH DISH FLOW",
+        DishTutorialStage.ObserveNewHire => "OBSERVE THE DELEGATED PROCESS DURING THE RUSH",
+        DishTutorialStage.DocumentGlassPriority => "PRESS Y TO ADD THE MISSING RUSH GLASS PRIORITY",
+        DishTutorialStage.ValidateDelegation => "LET THE NEW HIRE RESTORE A GLASS TO SERVICE",
+        DishTutorialStage.ObserveRareTray => "OBSERVE HOW THE NEW HIRE HANDLES THE RARE TRAY",
+        DishTutorialStage.DocumentRareTray => "PRESS U TO DOCUMENT THE RARE TRAY ORIENTATION",
+        DishTutorialStage.ValidateRareTray => "LET THE NEW HIRE RETRY THE RARE TRAY",
+        DishTutorialStage.OfferAutomation => "PRESS A TO ENABLE REPORTED-READY AUTO START",
+        DishTutorialStage.ObserveAutomation => "OBSERVE SEVERAL AUTOMATED WASHER CYCLES",
+        DishTutorialStage.InvestigateAutomation => "PRESS I TO INSPECT THE AUTOMATION INCIDENT",
+        DishTutorialStage.ReplayAutomation => "PRESS P TO REPLAY THE FAILED DECISION",
+        DishTutorialStage.RefineAutomation => "PRESS S TO REQUIRE PHYSICAL READY CORROBORATION",
+        DishTutorialStage.ValidateAutomation => "RE-RUN THE STICKY READY CONDITION",
+        DishTutorialStage.ValidateRegression => "PRESS P TO REPLAY THE INCIDENT AS A REGRESSION",
+        DishTutorialStage.ShiftReview => "STAGE CLEAN GLASSES, THEN PRESS W TO OPEN THE RELIABILITY WINDOW",
+        DishTutorialStage.ValidateShift => "KEEP SERVICE SUPPLIED THROUGH THREE LIVE DEMAND CHECKS",
+        DishTutorialStage.EpisodeComplete => "EPISODE COMPLETE - PRESS K FOR THE FIRST SHIFT REPORT",
+        _ => "OBSERVE THE STATION",
+    };
+
+    private readonly record struct WorkstationPresentation(
+        string Name,
+        DishAction Action,
+        DishState QueueState,
+        RectangleF Bounds,
+        Color Color);
+
+    private readonly record struct PlacementUndo(DishStationFixture Fixture, FloorCell Cell);
+}
+
+internal enum ClientControl
+{
+    MenuPrevious,
+    MenuNext,
+    MenuConfirm,
+    MenuBack,
+    IntroNext,
+    PreviousGuidance,
+    NextGuidance,
+    ToggleQuestJournal,
+    ToggleHelp,
+    JournalPrevious,
+    JournalNext,
+    ToggleQuestDetail,
+    JournalBack,
+    ToggleShiftReport,
+    PreviousWorkstation,
+    NextWorkstation,
+    ContextWork,
+    Scrape,
+    Rack,
+    StartWasher,
+    Unload,
+    DryAndRestock,
+    NextDish,
+    ToggleRush,
+    ConfirmBottleneck,
+    ConfigureFlowCell,
+    ToggleNewHire,
+    TrainHappyPath,
+    TrainRushPriority,
+    TrainRareTray,
+    EnableReportedAutomation,
+    InspectIncident,
+    ReplayIncident,
+    ToggleIncidentLens,
+    NextLens,
+    EnableSafeAutomation,
+    StartShiftTrial,
+    ToggleProcessLens,
+    ToggleGodMode,
+    GodAddDirty,
+    GodSetCleanSupply,
+    GodReset,
+    GodTogglePause,
+    GodStep,
+    GodStickyReady,
+    GodToggleLayout,
+    GodToggleBenchmark,
+    GodQuickSave,
+    GodQuickLoad,
+    CameraPanLeft,
+    CameraPanRight,
+    CameraPanUp,
+    CameraPanDown,
+    CameraZoomIn,
+    CameraZoomOut,
+    CameraReset,
+    TogglePlacementMode,
+    PreviousPlacementFixture,
+    NextPlacementFixture,
+    PlacementLeft,
+    PlacementRight,
+    PlacementUp,
+    PlacementDown,
+    ConfirmPlacement,
+    UndoPlacement,
+    ResetSandboxLayout,
+    Exit,
+}
+
+internal enum SystemLens
+{
+    Reality,
+    Process,
+    State,
+    Knowledge,
+    Automation,
+    Runtime,
+    Responsibility,
+}

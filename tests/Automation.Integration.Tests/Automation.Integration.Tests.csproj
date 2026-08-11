@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Automation.Content\Automation.Content.csproj" />
+    <ProjectReference Include="..\..\src\Automation.Domain\Automation.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Automation.Persistence\Automation.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\Automation.Simulation\Automation.Simulation.csproj" />
+    <ProjectReference Include="..\..\src\Automation.Tools\Automation.Tools.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
