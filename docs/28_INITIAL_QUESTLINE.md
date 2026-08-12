@@ -132,6 +132,20 @@ Implemented episode contract for S033 **Buy the Box**:
 
 The incident must not portray Sam as incompetent. It is a contract-boundary assumption: the local system calls the rare tray `exception`, the vendor interface expects `special`, and behavior differs according to the observability, fallback, and support terms the player selected.
 
+## First-shift presentation acceptance episode
+
+S034 polishes the restaurant chapter without adding a new quest or changing simulation truth.
+
+- **starting state:** the complete first-shift journey is playable, but its inherited primitive art has no chapter-level shipping decision and some distinctions still depend too heavily on labels;
+- **player episode:** during ordinary manual work, a washer cycle, a blocked action, a shortage, delegation, process inspection, and the later comparison boards, the player can read the room and the current consequence before opening a diagnostic lens;
+- **required visual language:** architecture establishes a back-of-house room and doorway; stations differ by silhouette and work-zone marking; plate, glass, and tray families differ by shape as well as color; player and new hire differ by silhouette and uniform; selection, work, active, complete, blocked, bottleneck, and transfer cues have consistent meanings;
+- **required audio language:** room ambience and core work/equipment/success/failure cues are audible at the saved volume, and every information-bearing cue keeps its visible caption or equivalent state change;
+- **terminal outcome:** every first-chapter room, equipment, item, cast, UI, audio, and VFX surface is either production or explicitly accepted alpha with source, license, limitations, and replacement trigger; no critical-path surface remains an unreviewed placeholder;
+- **headless proof:** a concrete restaurant acceptance audit rejects missing categories, fallback-only critical surfaces, absent provenance, absent accessible equivalents, or incomplete state coverage;
+- **native proof:** a deterministic native smoke run exercises the ordinary, active, complete, and attention states and retains an inspected gameplay frame at the approved-alpha presentation bar.
+
+The acceptance decision applies to presentation only. Fallbacks remain required for renderer or asset-load failure, and neither the asset register nor visual state may enter commands, saves, replay identity, topology, or simulation outcomes.
+
 ### Quest: The Rare Tray
 
 A low-frequency tray jams or routes incorrectly.
