@@ -218,3 +218,18 @@ public static class DishStationPatternContent
     public static PatternContentDefinition Strategy { get; } = DishStationFirstHoursContent.Catalog.Patterns
         .Single(pattern => pattern.Id.Value == StrategyId);
 }
+
+public static class DishStationVendorContent
+{
+    public const string ScenarioId = "scenario.restaurant.buy-the-box";
+    public const string QuestId = "quest.restaurant.buy-the-box";
+
+    public static ScenarioContentDefinition Scenario { get; } = DishStationFirstHoursContent.Catalog.Scenarios
+        .Single(scenario => scenario.Id.Value == ScenarioId);
+
+    public static VendorOutsourcingConfiguration Configuration { get; } = Scenario.VendorOutsourcing
+        ?? throw new InvalidOperationException($"Vendor scenario '{ScenarioId}' has no vendor_outsourcing configuration.");
+
+    public static QuestContentDefinition Quest { get; } = DishStationFirstHoursContent.Catalog.Quests
+        .Single(quest => quest.Id.Value == QuestId);
+}

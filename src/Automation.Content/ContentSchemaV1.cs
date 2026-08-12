@@ -142,7 +142,8 @@ public sealed record ScenarioContentDefinition(
     string Seed,
     ScenarioNarrativeContentDefinition? Narrative,
     DishStationScenarioConfiguration? DishStation,
-    TwoStationRoutingConfiguration? TwoStationRouting);
+    TwoStationRoutingConfiguration? TwoStationRouting,
+    VendorOutsourcingConfiguration? VendorOutsourcing);
 
 public sealed record QuestCompletionContentDefinition(string Metric, string Operator, double Value);
 

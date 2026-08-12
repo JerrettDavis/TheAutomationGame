@@ -33,6 +33,10 @@ public static partial class ContentCompilerV1
     private static readonly HashSet<string> RoutingStationTokens = new(StringComparer.Ordinal) { "main-dish-room", "patio-service-station" };
     private static readonly HashSet<string> RoutingPolicyTokens = new(StringComparer.Ordinal) { "captured-order", "plates-first", "glasses-first" };
     private static readonly HashSet<string> RoutingDemandTokens = new(StringComparer.Ordinal) { "plate", "glass" };
+    private static readonly HashSet<string> VendorProposalTokens = new(StringComparer.Ordinal) { "build-in-house", "managed-vendor", "observable-vendor" };
+    private static readonly HashSet<string> VendorSourcingTokens = new(StringComparer.Ordinal) { "internal-build", "vendor-package" };
+    private static readonly HashSet<string> VendorBoundaryTokens = new(StringComparer.Ordinal) { "player-owned", "vendor-managed", "player-owned-adapter" };
+    private static readonly HashSet<string> VendorKnowledgeTokens = new(StringComparer.Ordinal) { "restaurant-team", "vendor-only", "shared" };
     private static readonly HashSet<string> ManualActionTokens = new(StringComparer.Ordinal) { "scrape", "rack", "unload", "dry-and-restock" };
     private static readonly HashSet<string> BufferOrderingTokens = new(StringComparer.Ordinal) { "fifo" };
     private static readonly HashSet<string> InspectionObservationTokens = new(StringComparer.Ordinal) { "state-counts" };
@@ -103,7 +107,8 @@ public static partial class ContentCompilerV1
                     item.Narrative.Briefing.Select(page => new ScenarioBriefingPageContentDefinition(page.Title!, page.Body!)).ToImmutableArray(),
                     item.Narrative.DebriefSummary!, item.Narrative.DebriefQuestions.ToImmutableArray()),
                 dishStation,
-                item.TwoStationRouting is null ? null : CompileTwoStationRouting(item.TwoStationRouting, dishStation!));
+                item.TwoStationRouting is null ? null : CompileTwoStationRouting(item.TwoStationRouting, dishStation!),
+                item.VendorOutsourcing is null ? null : CompileVendorOutsourcing(item.VendorOutsourcing));
         }).OrderBy(item => item.Id.Value).ToImmutableArray();
         var quests = raw.Quests.Select(item => new QuestContentDefinition(Id(item.Id), Id(item.Scenario), Ids(item.Participants), item.Objective!,
             new(item.Completion!.Metric!, item.Completion.Operator!, item.Completion.Value!.Value),
@@ -293,6 +298,54 @@ public static partial class ContentCompilerV1
                 }
                 if (routing.Stations?.Select(station => station.Id).Where(id => id is not null).Distinct(StringComparer.Ordinal).Count() != routing.Stations?.Count)
                     Add("two_station_routing.stations", "Routing station IDs must be unique.");
+            }
+            if (item.VendorOutsourcing is { } vendor)
+            {
+                RequirePositive(vendor.TrialHorizonTicks, "vendor_outsourcing.trial_horizon_ticks");
+                RequirePositive(vendor.IncidentAtTick, "vendor_outsourcing.incident_at_tick");
+                if (vendor.TrialHorizonTicks is not null && vendor.IncidentAtTick is not null &&
+                    vendor.IncidentAtTick >= vendor.TrialHorizonTicks)
+                    Add("vendor_outsourcing.incident_at_tick", "Vendor incident must occur before the trial horizon ends.");
+                RequirePositive(vendor.ServiceValuePerRequest, "vendor_outsourcing.service_value_per_request");
+                RequireNonNegative(vendor.ShortageCostPerRequest, "vendor_outsourcing.shortage_cost_per_request");
+                if (!StepIdPattern().IsMatch(vendor.LocalRareTrayCode ?? "")) Add("vendor_outsourcing.local_rare_tray_code", "Local boundary code must use lowercase token syntax.");
+                if (!StepIdPattern().IsMatch(vendor.VendorRareTrayCode ?? "")) Add("vendor_outsourcing.vendor_rare_tray_code", "Vendor boundary code must use lowercase token syntax.");
+                if (string.Equals(vendor.LocalRareTrayCode, vendor.VendorRareTrayCode, StringComparison.Ordinal))
+                    Add("vendor_outsourcing.vendor_rare_tray_code", "Local and vendor boundary codes must expose a concrete mapping mismatch.");
+                if (vendor.Proposals is null || vendor.Proposals.Count != 3)
+                    Add("vendor_outsourcing.proposals", "Exactly three vendor proposals are required.");
+                else for (var index = 0; index < vendor.Proposals.Count; index++)
+                {
+                    var proposal = vendor.Proposals[index];
+                    var path = $"vendor_outsourcing.proposals[{index}]";
+                    RequireToken(proposal.Id, $"{path}.id", VendorProposalTokens);
+                    Require(proposal.DisplayName, $"{path}.display_name", "Vendor proposal display name is required.");
+                    RequireToken(proposal.Sourcing, $"{path}.sourcing", VendorSourcingTokens);
+                    RequireToken(proposal.Boundary, $"{path}.boundary", VendorBoundaryTokens);
+                    RequireToken(proposal.KnowledgeOwner, $"{path}.knowledge_owner", VendorKnowledgeTokens);
+                    RequirePositive(proposal.SupportResponseTicks, $"{path}.support_response_ticks");
+                    RequireNonNegative(proposal.SetupCost, $"{path}.setup_cost");
+                    RequireNonNegative(proposal.RecurringCost, $"{path}.recurring_cost");
+                    RequireNonNegative(proposal.MaintenanceCost, $"{path}.maintenance_cost");
+                    if (proposal.TraceAvailable is null) Add($"{path}.trace_available", "Trace availability is required.");
+                    if (proposal.ManualFallbackAvailable is null) Add($"{path}.manual_fallback_available", "Manual fallback availability is required.");
+                    RequireNonNegative(proposal.FallbackLaborCostPerRequest, $"{path}.fallback_labor_cost_per_request");
+                    if (proposal.ManualFallbackAvailable == false && proposal.FallbackLaborCostPerRequest != 0)
+                        Add($"{path}.fallback_labor_cost_per_request", "Fallback labor cost requires an available manual fallback.");
+                    if (proposal.Id == "build-in-house" && (proposal.Sourcing != "internal-build" || proposal.Boundary != "player-owned" ||
+                                                            proposal.KnowledgeOwner != "restaurant-team" || proposal.RecurringCost != 0))
+                        Add(path, "Build-in-house must retain the player-owned boundary, restaurant knowledge, and no vendor fee.");
+                    if (proposal.Id == "managed-vendor" && (proposal.Sourcing != "vendor-package" || proposal.Boundary != "vendor-managed" ||
+                                                            proposal.KnowledgeOwner != "vendor-only" || proposal.TraceAvailable != false ||
+                                                            proposal.ManualFallbackAvailable != false || proposal.RecurringCost is null or 0))
+                        Add(path, "Managed-vendor must use the opaque vendor-owned contract with a recurring fee and no local fallback.");
+                    if (proposal.Id == "observable-vendor" && (proposal.Sourcing != "vendor-package" || proposal.Boundary != "player-owned-adapter" ||
+                                                               proposal.KnowledgeOwner != "shared" || proposal.TraceAvailable != true ||
+                                                               proposal.ManualFallbackAvailable != true || proposal.RecurringCost is null or 0))
+                        Add(path, "Observable-vendor must use the shared traced adapter, local fallback, and recurring vendor fee.");
+                }
+                if (vendor.Proposals?.Select(proposal => proposal.Id).Where(id => id is not null).Distinct(StringComparer.Ordinal).Count() != vendor.Proposals?.Count)
+                    Add("vendor_outsourcing.proposals", "Vendor proposal IDs must be unique.");
             }
         });
         ValidateDefinitions(raw.Quests, "quests", "quest.", source, diagnostics, item =>
@@ -745,6 +798,12 @@ public static partial class ContentCompilerV1
                 foreach (var station in routing.Stations.OrderBy(station => station.Id))
                     text.AppendLine($"routing-station|{RoutingStationToken(station.Id)}|{Encode(station.DisplayName)}|{Counts(station.InitialDirty)}|{DishKindToken(station.DemandKind)}|{RoutingPolicyToken(station.InitialPolicy)}");
             }
+            if (item.VendorOutsourcing is { } vendor)
+            {
+                text.AppendLine($"vendor-outsourcing|{vendor.TrialHorizonTicks}|{vendor.IncidentAtTick}|{vendor.ServiceValuePerRequest}|{vendor.ShortageCostPerRequest}|{vendor.LocalRareTrayCode}|{vendor.VendorRareTrayCode}");
+                foreach (var proposal in vendor.Proposals.OrderBy(proposal => proposal.Id))
+                    text.AppendLine($"vendor-proposal|{VendorProposalToken(proposal.Id)}|{Encode(proposal.DisplayName)}|{VendorSourcingToken(proposal.Sourcing)}|{VendorBoundaryToken(proposal.Boundary)}|{VendorKnowledgeToken(proposal.KnowledgeOwner)}|{proposal.SupportResponseTicks}|{proposal.SetupCost}|{proposal.RecurringCost}|{proposal.MaintenanceCost}|{proposal.TraceAvailable}|{proposal.ManualFallbackAvailable}|{proposal.FallbackLaborCostPerRequest}");
+            }
         }
         foreach (var item in quests)
         {
@@ -992,6 +1051,71 @@ public static partial class ContentCompilerV1
         ProcessRoutingPolicy.GlassesFirst => "glasses-first",
         _ => throw new UnreachableException(),
     };
+
+    private static VendorOutsourcingConfiguration CompileVendorOutsourcing(RawVendorOutsourcing vendor) => new VendorOutsourcingConfiguration(
+        vendor.Proposals.Select(proposal => new VendorProposalConfiguration(
+            VendorProposal(proposal.Id!), proposal.DisplayName!, VendorSourcing(proposal.Sourcing!),
+            VendorBoundary(proposal.Boundary!), VendorKnowledge(proposal.KnowledgeOwner!),
+            proposal.SupportResponseTicks!.Value, proposal.SetupCost!.Value, proposal.RecurringCost!.Value,
+            proposal.MaintenanceCost!.Value, proposal.TraceAvailable!.Value,
+            proposal.ManualFallbackAvailable!.Value, proposal.FallbackLaborCostPerRequest!.Value)).ToImmutableArray(),
+        vendor.TrialHorizonTicks!.Value, vendor.IncidentAtTick!.Value, vendor.ServiceValuePerRequest!.Value,
+        vendor.ShortageCostPerRequest!.Value, vendor.LocalRareTrayCode!, vendor.VendorRareTrayCode!).Validate();
+
+    private static VendorProposalId VendorProposal(string token) => token switch
+    {
+        "build-in-house" => VendorProposalId.BuildInHouse,
+        "managed-vendor" => VendorProposalId.ManagedVendor,
+        "observable-vendor" => VendorProposalId.ObservableVendor,
+        _ => throw new UnreachableException(),
+    };
+    private static string VendorProposalToken(VendorProposalId value) => value switch
+    {
+        VendorProposalId.BuildInHouse => "build-in-house",
+        VendorProposalId.ManagedVendor => "managed-vendor",
+        VendorProposalId.ObservableVendor => "observable-vendor",
+        _ => throw new UnreachableException(),
+    };
+    private static VendorSourcingMode VendorSourcing(string token) => token switch
+    {
+        "internal-build" => VendorSourcingMode.InternalBuild,
+        "vendor-package" => VendorSourcingMode.VendorPackage,
+        _ => throw new UnreachableException(),
+    };
+    private static string VendorSourcingToken(VendorSourcingMode value) => value switch
+    {
+        VendorSourcingMode.InternalBuild => "internal-build",
+        VendorSourcingMode.VendorPackage => "vendor-package",
+        _ => throw new UnreachableException(),
+    };
+    private static VendorIntegrationBoundary VendorBoundary(string token) => token switch
+    {
+        "player-owned" => VendorIntegrationBoundary.PlayerOwned,
+        "vendor-managed" => VendorIntegrationBoundary.VendorManaged,
+        "player-owned-adapter" => VendorIntegrationBoundary.PlayerOwnedAdapter,
+        _ => throw new UnreachableException(),
+    };
+    private static string VendorBoundaryToken(VendorIntegrationBoundary value) => value switch
+    {
+        VendorIntegrationBoundary.PlayerOwned => "player-owned",
+        VendorIntegrationBoundary.VendorManaged => "vendor-managed",
+        VendorIntegrationBoundary.PlayerOwnedAdapter => "player-owned-adapter",
+        _ => throw new UnreachableException(),
+    };
+    private static VendorKnowledgeOwner VendorKnowledge(string token) => token switch
+    {
+        "restaurant-team" => VendorKnowledgeOwner.RestaurantTeam,
+        "vendor-only" => VendorKnowledgeOwner.VendorOnly,
+        "shared" => VendorKnowledgeOwner.Shared,
+        _ => throw new UnreachableException(),
+    };
+    private static string VendorKnowledgeToken(VendorKnowledgeOwner value) => value switch
+    {
+        VendorKnowledgeOwner.RestaurantTeam => "restaurant-team",
+        VendorKnowledgeOwner.VendorOnly => "vendor-only",
+        VendorKnowledgeOwner.Shared => "shared",
+        _ => throw new UnreachableException(),
+    };
     private static void ThrowIfAny(List<ContentDiagnostic> diagnostics)
     {
         if (diagnostics.Count > 0) throw new ContentCompilationException(diagnostics);
@@ -1060,6 +1184,7 @@ public static partial class ContentCompilerV1
         public RawScenarioNarrative? Narrative { get; set; }
         public RawDishStationScenario? DishStation { get; set; }
         public RawTwoStationRouting? TwoStationRouting { get; set; }
+        public RawVendorOutsourcing? VendorOutsourcing { get; set; }
     }
     private sealed class RawScenarioNarrative
     {
@@ -1113,6 +1238,31 @@ public static partial class ContentCompilerV1
         public RawDishCounts? InitialDirty { get; set; }
         public string? DemandKind { get; set; }
         public string? InitialPolicy { get; set; }
+    }
+    private sealed class RawVendorOutsourcing
+    {
+        public int? TrialHorizonTicks { get; set; }
+        public int? IncidentAtTick { get; set; }
+        public int? ServiceValuePerRequest { get; set; }
+        public int? ShortageCostPerRequest { get; set; }
+        public string? LocalRareTrayCode { get; set; }
+        public string? VendorRareTrayCode { get; set; }
+        public List<RawVendorProposal> Proposals { get; set; } = [];
+    }
+    private sealed class RawVendorProposal
+    {
+        public string? Id { get; set; }
+        public string? DisplayName { get; set; }
+        public string? Sourcing { get; set; }
+        public string? Boundary { get; set; }
+        public string? KnowledgeOwner { get; set; }
+        public int? SupportResponseTicks { get; set; }
+        public int? SetupCost { get; set; }
+        public int? RecurringCost { get; set; }
+        public int? MaintenanceCost { get; set; }
+        public bool? TraceAvailable { get; set; }
+        public bool? ManualFallbackAvailable { get; set; }
+        public int? FallbackLaborCostPerRequest { get; set; }
     }
     private sealed class RawDishCounts { public int? Plates { get; set; } public int? Glasses { get; set; } public int? Trays { get; set; } }
     private sealed class RawQuest : RawDefinition

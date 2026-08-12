@@ -4,7 +4,7 @@ namespace Automation.Content.Tests;
 
 public sealed class CharacterContentV1Tests
 {
-    private static readonly string[] ExpectedIds =
+    private static readonly string[] FirstShiftIds =
     [
         "character.restaurant.avery-chen",
         "character.restaurant.devon-price",
@@ -13,8 +13,14 @@ public sealed class CharacterContentV1Tests
         "character.restaurant.tessa-brooks",
     ];
 
+    private static readonly string[] ExpectedIds =
+    [
+        "character.recurring.sam-rivera",
+        .. FirstShiftIds,
+    ];
+
     [Fact]
-    public void ProductionRosterDefinesFiveCompleteStableCharacters()
+    public void ProductionRosterDefinesSixCompleteStableCharactersIncludingSam()
     {
         var catalog = ContentCompilerV1.CompileFile(ContentTestPaths.FirstShift);
 
@@ -46,7 +52,7 @@ public sealed class CharacterContentV1Tests
             ["capture-the-exception"] = ["character.restaurant.jules-martin", "character.restaurant.ray-morales"],
             ["investigate-the-signal"] = ["character.restaurant.avery-chen", "character.restaurant.devon-price"],
             ["prove-the-fix"] = ["character.restaurant.avery-chen", "character.restaurant.devon-price"],
-            ["own-the-shift"] = ExpectedIds,
+            ["own-the-shift"] = FirstShiftIds,
         };
 
         Assert.Equal(5, scenario.Characters.Length);

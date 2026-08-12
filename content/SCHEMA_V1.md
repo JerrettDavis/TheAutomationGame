@@ -35,7 +35,7 @@ Role and presentation references use `role.` and `presentation.` respectively; t
 - `workstations`: `id`, `industry`, `display_name`, nonempty `accepted_items`, `input_state`, `output_state`, `presentation`, and `presentation_fallback`.
 - `processes`: `id`, `industry`, nonempty unique `steps`, `routes`, optional `allow_cycles` (default `false`).
 - `characters`: `id`, `industry`, `display_name`, `role`, nonempty `motivation`, nonempty stable-ID `known_facts`, `blind_spots`, and `authority`, directional `relationships`, `presentation`, and `presentation_fallback`.
-- `scenarios`: `id`, `industry`, `facility`, nonempty `processes`, `items`, `characters`, and named deterministic `seed`. A scenario may carry the optional complete `narrative` block, a dish-station scenario may carry the complete `dish_station` runtime block, and the concrete S030 restaurant episode may carry `two_station_routing` as described below.
+- `scenarios`: `id`, `industry`, `facility`, nonempty `processes`, `items`, `characters`, and named deterministic `seed`. A scenario may carry the optional complete `narrative` block, a dish-station scenario may carry the complete `dish_station` runtime block, the concrete S030 restaurant episode may carry `two_station_routing`, and the S033 side arc may carry `vendor_outsourcing` as described below.
 - `quests`: `id`, `scenario`, nonempty unique character `participants`, outcome-oriented `objective`, and one numeric `completion` condition. A quest may also carry the complete optional `narrative` block described below.
 - `incidents`: `id`, `industry`, `display_name`, nonnegative `trigger_at_tick`, `scope`, immediate `observable`, discoverable `evidence`, `recovery`, and exactly one typed effect block.
 - `patterns`: `id`, closed `catalog` and `category`, hidden `external_catalog_id`, player-safe `pre_name_title`, authored naming/reflection/structure/tradeoff copy, nonempty unique `problem_signatures`, a recognition rule, and nonempty primary quest encounters.
@@ -173,6 +173,38 @@ two_station_routing:
 Exactly the `main-dish-room` and `patio-service-station` IDs are supported in this episode. Their IDs must be unique; each station requires a display name, nonnegative initial counts with at least one plate or glass, a `plate` or `glass` demand kind, and a `captured-order`, `plates-first`, or `glasses-first` initial policy. The trial horizon is positive and bounded by the engine-neutral configuration.
 
 This is deliberately not a generic pattern or strategy schema. Content authors the two restaurant situations and their starting choices; `TwoStationRoutingWorld` owns policy changes, copy history, deterministic trials, metrics, and replay. S031/S032 may record and name the reusable concept only after this lived episode exists.
+
+## Vendor outsourcing episode
+
+S033 adds one concrete optional `vendor_outsourcing` block. It authors the fixed comparison horizon, rare-tray boundary mismatch, service/cost rates, and exactly three restaurant proposals:
+
+```yaml
+vendor_outsourcing:
+  trial_horizon_ticks: 8
+  incident_at_tick: 3
+  service_value_per_request: 80
+  shortage_cost_per_request: 30
+  local_rare_tray_code: exception
+  vendor_rare_tray_code: special
+  proposals:
+    - id: build-in-house
+      display_name: BUILD IN HOUSE
+      sourcing: internal-build
+      boundary: player-owned
+      knowledge_owner: restaurant-team
+      support_response_ticks: 1
+      setup_cost: 220
+      recurring_cost: 0
+      maintenance_cost: 60
+      trace_available: true
+      manual_fallback_available: false
+      fallback_labor_cost_per_request: 0
+    # managed-vendor and observable-vendor author the same complete term set
+```
+
+The supported proposal IDs are `build-in-house`, `managed-vendor`, and `observable-vendor`, each exactly once. Their allowed sourcing, boundary, and knowledge-owner combinations are deliberately closed for this episode. The in-house bundle retains the boundary and maintenance burden; managed vendor is vendor-owned and opaque with no local fallback; observable vendor requires a player-owned traced adapter, shared understanding, and manual fallback. Costs are nonnegative, response/horizon/value are positive, the incident occurs inside the horizon, and local/vendor codes must be different lowercase tokens.
+
+`VendorOutsourcingWorld` owns proposal selection, fixed-incident trials, cost/service outcomes, bounded causal traces, and replay. Content does not claim a universally correct make/buy answer, and the simulation does not read YAML or invent contract terms.
 
 ## Pattern knowledge overlay
 

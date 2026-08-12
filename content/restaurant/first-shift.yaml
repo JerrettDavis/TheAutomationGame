@@ -137,6 +137,22 @@ characters:
     presentation: presentation.character.restaurant.devon-price
     presentation_fallback: presentation.fallback.character
 
+  - id: character.recurring.sam-rivera
+    industry: industry.restaurant
+    display_name: Sam Rivera
+    role: role.restaurant.vendor-integrator
+    motivation: Solve the restaurant's routing problem quickly while keeping the delivered package inside a supportable contract boundary.
+    known_facts: [knowledge.vendor.package-interface, knowledge.vendor.support-capability]
+    blind_spots: [knowledge.restaurant.rare-tray-local-code, knowledge.restaurant.operator-fallback]
+    authority: [authority.vendor.propose-contract, authority.vendor.support-package]
+    relationships:
+      - character: character.restaurant.avery-chen
+        kind: relationship.restaurant.vendor-to-manager
+      - character: character.restaurant.devon-price
+        kind: relationship.restaurant.vendor-to-maintenance
+    presentation: presentation.character.restaurant.sam-rivera
+    presentation_fallback: presentation.fallback.character
+
 scenarios:
   - id: scenario.restaurant.first-shift
     industry: industry.restaurant
@@ -243,6 +259,58 @@ scenarios:
             trays: 0
           demand_kind: plate
           initial_policy: glasses-first
+
+  - id: scenario.restaurant.buy-the-box
+    industry: industry.restaurant
+    facility: facility.restaurant.rossis.back-of-house
+    processes: [process.restaurant.dishwashing.first-shift]
+    items: [item.restaurant.dishware]
+    characters: [character.recurring.sam-rivera, character.restaurant.avery-chen, character.restaurant.devon-price]
+    seed: buy-the-box-v1
+    vendor_outsourcing:
+      trial_horizon_ticks: 8
+      incident_at_tick: 3
+      service_value_per_request: 80
+      shortage_cost_per_request: 30
+      local_rare_tray_code: exception
+      vendor_rare_tray_code: special
+      proposals:
+        - id: build-in-house
+          display_name: BUILD IN HOUSE
+          sourcing: internal-build
+          boundary: player-owned
+          knowledge_owner: restaurant-team
+          support_response_ticks: 1
+          setup_cost: 220
+          recurring_cost: 0
+          maintenance_cost: 60
+          trace_available: true
+          manual_fallback_available: false
+          fallback_labor_cost_per_request: 0
+        - id: managed-vendor
+          display_name: SAM'S MANAGED PACKAGE
+          sourcing: vendor-package
+          boundary: vendor-managed
+          knowledge_owner: vendor-only
+          support_response_ticks: 4
+          setup_cost: 60
+          recurring_cost: 40
+          maintenance_cost: 0
+          trace_available: false
+          manual_fallback_available: false
+          fallback_labor_cost_per_request: 0
+        - id: observable-vendor
+          display_name: OBSERVABLE VENDOR PACKAGE
+          sourcing: vendor-package
+          boundary: player-owned-adapter
+          knowledge_owner: shared
+          support_response_ticks: 2
+          setup_cost: 140
+          recurring_cost: 70
+          maintenance_cost: 0
+          trace_available: true
+          manual_fallback_available: true
+          fallback_labor_cost_per_request: 20
 
 quests:
   - id: quest.restaurant.first-shift.clock-in
@@ -496,6 +564,34 @@ quests:
           text: CHANGE THE PATIO POLICY IN THE SAME DECISION SLOT
         - id: rerun-two-stations
           text: RERUN BOTH STATIONS AND COMPARE THE SERVICE RESULT
+
+  - id: quest.restaurant.buy-the-box
+    scenario: scenario.restaurant.buy-the-box
+    participants: [character.recurring.sam-rivera, character.restaurant.avery-chen, character.restaurant.devon-price]
+    objective: Compare sourcing and support boundaries under the same rare-tray integration failure, then retain a viable operating choice.
+    completion:
+      metric: process.completed.count
+      operator: greater_than_or_equal
+      value: 1
+    narrative:
+      runtime_id: buy-the-box
+      sequence: 1
+      title: BUY THE BOX
+      situation: Sam Rivera can deliver mature routing quickly, but Avery needs the contract boundary, support response, and local fallback to be as explicit as the service promise.
+      discovery: Outsourcing moves implementation and some risk; it does not erase the work of defining interfaces, evidence, fallback, and ownership.
+      unlock_rationale: Two viable proposals survived the same rare-tray mismatch with different cost, availability, and understanding.
+      reward:
+        experience: 500
+        capability: capability.vendor-comparison
+      steps:
+        - id: review-proposals
+          text: REVIEW WHO OWNS THE BOUNDARY, TRACE, FALLBACK, AND RESPONSE
+        - id: run-first-contract
+          text: RUN ONE PROPOSAL THROUGH THE RARE-TRAY MISMATCH
+        - id: inspect-support-result
+          text: INSPECT WHAT OPERATORS COULD SEE WHILE SERVICE WAS INTERRUPTED
+        - id: compare-second-contract
+          text: RUN A SECOND VIABLE PROPOSAL UNDER THE SAME INCIDENT
 
 patterns:
   - id: pattern.strategy

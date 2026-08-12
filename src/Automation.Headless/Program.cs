@@ -301,6 +301,25 @@ if (args.Contains("--pattern-naming-demo", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--vendor-demo", StringComparer.OrdinalIgnoreCase))
+{
+    var vendor = new VendorOutsourcingWorld(DishStationVendorContent.Configuration);
+    Console.WriteLine($"vendor-episode title={DishStationVendorContent.Quest.Narrative!.Title} localCode={vendor.Configuration.LocalRareTrayCode} vendorCode={vendor.Configuration.VendorRareTrayCode} horizon={vendor.Configuration.TrialHorizonTicks} incidentAt={vendor.Configuration.IncidentAtTick}");
+    foreach (var proposal in Enum.GetValues<VendorProposalId>())
+    {
+        vendor.ExecuteNow(new SelectVendorProposalCommand(vendor.Tick, proposal));
+        vendor.ExecuteNow(new RunVendorProposalTrialCommand(vendor.Tick));
+        var trial = vendor.Snapshot().LatestTrial!;
+        Console.WriteLine($"proposal={trial.Proposal} sourcing={trial.Sourcing} boundary={trial.Boundary} knowledge={trial.KnowledgeOwner} response={trial.SupportResponseTicks} trace={trial.TraceAvailable} fallback={trial.ManualFallbackAvailable} normalCost={trial.NormalCost} normalNet={trial.NormalNetValue} handled={trial.RequestsHandled} missed={trial.RequestsMissed} fallbackRequests={trial.FallbackRequests} incidentCost={trial.IncidentTotalCost} incidentNet={trial.IncidentNetValue} viable={trial.Viable}");
+        foreach (var entry in trial.Trace)
+            Console.WriteLine($"  trace tick={entry.Tick} phase={entry.Phase} owner={entry.KnowledgeOwner} observable={entry.Observable}");
+    }
+    var restored = VendorOutsourcingWorld.Restore(vendor.CreateReplaySave());
+    var trials = restored.Snapshot().Trials;
+    Console.WriteLine($"vendor-outcome compared={restored.Snapshot().ComparedProposalCount} viable={trials.Count(trial => trial.Viable)} distinctRisks={trials.Select(trial => (trial.RequestsMissed, trial.KnowledgeOwner, trial.IncidentTotalCost)).Distinct().Count()} replayTrials={trials.Count}");
+    return;
+}
+
 var options = HeadlessOptions.Parse(args, DishStationFirstHoursContent.ScenarioConfiguration);
 if (options.ShowHelp)
 {
@@ -498,6 +517,7 @@ internal sealed record HeadlessOptions(
           --two-station-demo            copy, refit, and compare routing policies across two restaurant stations
           --pattern-knowledge-demo      recognize, persist, and print the pre-name restaurant Codex evidence
           --pattern-naming-demo         reflect, name Strategy, and print its structure/tradeoffs after resume
+          --vendor-demo                 compare build/managed/observable sourcing under one boundary incident
           --named-seed NAME             required by templates with declared variable fields
           --parameter NAME=VALUE        supply a template parameter; repeat for additional parameters
           --initial-plates N            initial dirty plates
