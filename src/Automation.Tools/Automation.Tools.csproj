@@ -6,4 +6,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Automation.Domain\Automation.Domain.csproj" />
+    <ProjectReference Include="..\Automation.Persistence\Automation.Persistence.csproj" />
+    <ProjectReference Include="..\Automation.Simulation\Automation.Simulation.csproj" />
+  </ItemGroup>
+
 </Project>
