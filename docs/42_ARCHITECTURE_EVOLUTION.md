@@ -266,6 +266,8 @@ S028 completes the first-shift narrative ownership boundary. Scenario content ow
 
 S029 adds one bounded first-shift economy projection rather than a general ledger. Scenario content owns engine-neutral integer value/cost rates. `DishStationWorld` alone accumulates successful player and worker actions, enabled-worker ticks, rework, shortages, unsafe automation incidents, completed dishes, and the flow-cell purchase; live snapshots calculate an explainable summary and the completed shift report freezes that same value. Replay/save reconstructs it from the existing scenario, command journal, and ticks. The client and headless runner display the snapshot but cannot post transactions or invent costs. A same-seed 120-tick staffed linear/flow-cell comparison is a concrete validation episode, not a reusable business-accounting framework.
 
+S030 adds a separate, bounded two-station routing episode after the first shift. Content authors exactly the main dish room and patio service station, their local dish demand, initial inventory, initial routing choice, and a shared trial horizon. `TwoStationRoutingWorld` authoritatively owns policy selection, copy actions, deterministic trials, metrics, and replay; each explicit trial runs two validated `DishStationWorld` instances and reports their real shortage/economy consequences. The Stride board pauses the first-shift projection while open and sends only set/copy/run commands. This is intentionally not a generic policy registry, experiment framework, career-save extension, or named Strategy concept; those abstractions wait for S031/S032 evidence and another recurring use.
+
 ## Save evolution
 
 Before campaign alpha, saves should include:

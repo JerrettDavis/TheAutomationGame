@@ -34,6 +34,7 @@ public sealed class DishStationGame : Game
     private readonly PresentationCatalog presentationCatalog;
 
     private DishStationWorld world = new(42, DishStationFirstHoursContent.ScenarioConfiguration);
+    private readonly TwoStationRoutingWorld twoStationWorld = new(42, DishStationTwoStationsContent.Configuration);
     private double simulationAccumulator;
     private DishKind selectedKind = DishKind.Plate;
     private int selectedWorkstation;
@@ -45,12 +46,16 @@ public sealed class DishStationGame : Game
     private bool paused;
     private SystemLens activeLens = SystemLens.Process;
     private readonly string? driverControlFile = Environment.GetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE");
+    private readonly string? screenshotRequestFile = Environment.GetEnvironmentVariable("AUTOMATION_SCREENSHOT_REQUEST_FILE");
     private readonly bool developerToolsOptIn = string.Equals(Environment.GetEnvironmentVariable("AUTOMATION_DEVELOPER_TOOLS"), "1", StringComparison.Ordinal);
     private readonly bool diagnosticTitleOptIn = string.Equals(Environment.GetEnvironmentVariable("AUTOMATION_DIAGNOSTIC_TITLE"), "1", StringComparison.Ordinal);
     private readonly bool fullscreenPresentation;
     private readonly int requestedWidth;
     private readonly int requestedHeight;
     private long driverControlSequence;
+    private long screenshotRequestSequence;
+    private long pendingScreenshotSequence;
+    private string? pendingScreenshotPath;
     private double driverPollAccumulator;
     private string commandFeedback = "";
     private SpriteBatch? spriteBatch;
@@ -108,6 +113,7 @@ public sealed class DishStationGame : Game
     private int settingsSelection;
     private int selectedProcessStep;
     private int selectedAutomationRuleRow;
+    private int selectedRoutingStation;
     private string settingsStatus = "READY";
     private double autosaveAccumulator;
     private long lastAutosaveTick = -1;
@@ -131,6 +137,7 @@ public sealed class DishStationGame : Game
     private bool NewCareerConfirmationVisible => screenRouter.Modal == ClientModal.NewCareerConfirmation;
     private bool ProcessEditorVisible => screenRouter.Modal == ClientModal.ProcessEditor;
     private bool AutomationEditorVisible => screenRouter.Modal == ClientModal.AutomationEditor;
+    private bool TwoStationRoutingVisible => screenRouter.Modal == ClientModal.TwoStationRouting;
 
     public DishStationGame(
         bool fullscreenPresentation = false,
@@ -306,6 +313,20 @@ public sealed class DishStationGame : Game
             return;
         }
 
+        if (TwoStationRoutingVisible)
+        {
+            if (Pressed(GameInputAction.TwoStationRoutingPreviousStation)) HandleControl(ClientControl.TwoStationRoutingPreviousStation);
+            if (Pressed(GameInputAction.TwoStationRoutingNextStation)) HandleControl(ClientControl.TwoStationRoutingNextStation);
+            if (Pressed(GameInputAction.TwoStationRoutingPreviousPolicy)) HandleControl(ClientControl.TwoStationRoutingPreviousPolicy);
+            if (Pressed(GameInputAction.TwoStationRoutingNextPolicy)) HandleControl(ClientControl.TwoStationRoutingNextPolicy);
+            if (Pressed(GameInputAction.TwoStationRoutingCopy)) HandleControl(ClientControl.TwoStationRoutingCopy);
+            if (Pressed(GameInputAction.TwoStationRoutingRunTrial)) HandleControl(ClientControl.TwoStationRoutingRunTrial);
+            if (Pressed(GameInputAction.TwoStationRoutingClose)) HandleControl(ClientControl.TwoStationRoutingClose);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
         if (careerSaveEnabled && world.IntroComplete)
         {
             autosaveAccumulator += gameTime.Elapsed.TotalSeconds;
@@ -361,6 +382,7 @@ public sealed class DishStationGame : Game
         if (!placementMode && Pressed(GameInputAction.ProcessCaptureToggle)) HandleControl(ClientControl.ToggleProcessCapture);
         if (!placementMode && Pressed(GameInputAction.ProcessEditorToggle)) HandleControl(ClientControl.ToggleProcessEditor);
         if (!placementMode && Pressed(GameInputAction.AutomationEditorToggle)) HandleControl(ClientControl.ToggleAutomationEditor);
+        if (!placementMode && Pressed(GameInputAction.TwoStationRoutingToggle)) HandleControl(ClientControl.ToggleTwoStationRouting);
         if (Pressed(GameInputAction.DeveloperToggle)) HandleControl(ClientControl.ToggleGodMode);
         if (Pressed(GameInputAction.DeveloperAddDirty)) HandleControl(ClientControl.GodAddDirty);
         if (Pressed(GameInputAction.DeveloperSetCleanSupply)) HandleControl(ClientControl.GodSetCleanSupply);
@@ -405,6 +427,7 @@ public sealed class DishStationGame : Game
             GraphicsContext.CommandList.Clear(GraphicsDevice.Presenter.BackBuffer, new Color4(0.025f, 0.04f, 0.055f, 1f));
         }
         DrawRoom(snapshot);
+        WritePendingScreenshot();
     }
 
     protected override void Destroy()
@@ -662,6 +685,22 @@ public sealed class DishStationGame : Game
                     Execute(new DiscardAutomationRuleEditCommand(world.Tick));
                 screenRouter.ToggleAutomationEditor();
                 break;
+            case ClientControl.ToggleTwoStationRouting: ToggleTwoStationRouting(); break;
+            case ClientControl.TwoStationRoutingPreviousStation: SelectRoutingStation(-1); break;
+            case ClientControl.TwoStationRoutingNextStation: SelectRoutingStation(1); break;
+            case ClientControl.TwoStationRoutingPreviousPolicy: ChangeRoutingPolicy(-1); break;
+            case ClientControl.TwoStationRoutingNextPolicy: ChangeRoutingPolicy(1); break;
+            case ClientControl.TwoStationRoutingCopy:
+                ExecuteRouting(new CopyRoutingStationPolicyCommand(twoStationWorld.Tick,
+                    DishRoutingStationId.MainDishRoom, DishRoutingStationId.PatioServiceStation));
+                break;
+            case ClientControl.TwoStationRoutingRunTrial:
+                ExecuteRouting(new RunTwoStationRoutingTrialCommand(twoStationWorld.Tick));
+                break;
+            case ClientControl.TwoStationRoutingClose:
+                screenRouter.ToggleTwoStationRouting();
+                UpdateWindowTitle();
+                break;
             case ClientControl.ToggleGodMode:
                 if (!DeveloperToolsAvailable)
                 {
@@ -752,11 +791,13 @@ public sealed class DishStationGame : Game
 
     private void PollDriverControl(double elapsedSeconds)
     {
-        if (string.IsNullOrWhiteSpace(driverControlFile)) return;
+        if (string.IsNullOrWhiteSpace(driverControlFile) && string.IsNullOrWhiteSpace(screenshotRequestFile)) return;
         driverPollAccumulator += elapsedSeconds;
         if (driverPollAccumulator < 0.05) return;
         driverPollAccumulator = 0;
 
+        PollScreenshotRequest();
+        if (string.IsNullOrWhiteSpace(driverControlFile)) return;
         try
         {
             if (!File.Exists(driverControlFile)) return;
@@ -772,6 +813,47 @@ public sealed class DishStationGame : Game
         catch (IOException)
         {
             // The external driver may be replacing its tiny instruction file; retry next poll.
+        }
+    }
+
+    private void PollScreenshotRequest()
+    {
+        if (string.IsNullOrWhiteSpace(screenshotRequestFile)) return;
+        try
+        {
+            if (!File.Exists(screenshotRequestFile)) return;
+            var instruction = File.ReadAllText(screenshotRequestFile);
+            var separator = instruction.IndexOf('|');
+            if (separator <= 0 ||
+                !long.TryParse(instruction.AsSpan(0, separator), out var sequence) ||
+                sequence <= screenshotRequestSequence) return;
+            var path = instruction[(separator + 1)..].Trim();
+            if (string.IsNullOrWhiteSpace(path)) return;
+            screenshotRequestSequence = sequence;
+            pendingScreenshotSequence = sequence;
+            pendingScreenshotPath = Path.GetFullPath(path);
+        }
+        catch (IOException)
+        {
+            // The external driver may be replacing its request file; retry next poll.
+        }
+    }
+
+    private void WritePendingScreenshot()
+    {
+        if (pendingScreenshotPath is not { } path) return;
+        try
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+            using var stream = File.Create(path);
+            GraphicsDevice.Presenter.BackBuffer.Save(GraphicsContext.CommandList, stream, ImageFileType.Png);
+            pendingScreenshotPath = null;
+            commandFeedback = $"Captured UI evidence {pendingScreenshotSequence}.";
+        }
+        catch (IOException)
+        {
+            // Keep the request pending and retry on the next presented frame.
         }
     }
 
@@ -829,6 +911,50 @@ public sealed class DishStationGame : Game
     {
         selectedAutomationRuleRow = (selectedAutomationRuleRow + offset + AutomationRuleEditorPresenter.RowCount) %
                                     AutomationRuleEditorPresenter.RowCount;
+    }
+
+    private void ToggleTwoStationRouting()
+    {
+        if (TwoStationRoutingVisible)
+        {
+            screenRouter.ToggleTwoStationRouting();
+            UpdateWindowTitle();
+            return;
+        }
+        if (world.TutorialStage != DishTutorialStage.EpisodeComplete)
+        {
+            commandFeedback = "Two-station routing opens after the first shift.";
+            UpdateWindowTitle();
+            return;
+        }
+        selectedRoutingStation = 0;
+        screenRouter.ToggleTwoStationRouting();
+        commandFeedback = "Compare the same routing decision at both stations.";
+        UpdateWindowTitle();
+    }
+
+    private void SelectRoutingStation(int offset)
+    {
+        var count = DishStationTwoStationsContent.Configuration.Stations.Length;
+        selectedRoutingStation = (selectedRoutingStation + offset + count) % count;
+        UpdateWindowTitle();
+    }
+
+    private void ChangeRoutingPolicy(int offset)
+    {
+        var profile = DishStationTwoStationsContent.Configuration.Stations[selectedRoutingStation];
+        var policies = Enum.GetValues<ProcessRoutingPolicy>();
+        var current = Array.IndexOf(policies, twoStationWorld.Snapshot().PolicyFor(profile.Id));
+        var next = policies[(current + offset + policies.Length) % policies.Length];
+        ExecuteRouting(new SetRoutingStationPolicyCommand(twoStationWorld.Tick, profile.Id, next));
+    }
+
+    private bool ExecuteRouting(ITwoStationRoutingCommand command)
+    {
+        var result = twoStationWorld.ExecuteNow(command);
+        commandFeedback = result.Message;
+        UpdateWindowTitle();
+        return result.Success;
     }
 
     private void ToggleSelectedAutomationRuleValue()
@@ -1637,6 +1763,7 @@ public sealed class DishStationGame : Game
             else if (ShiftReportVisible) DrawShiftReport(snapshot);
             else if (ProcessEditorVisible) DrawProcessEditor(snapshot.ProcessCapture);
             else if (AutomationEditorVisible) DrawAutomationRuleEditor(snapshot.Automation);
+            else if (TwoStationRoutingVisible) DrawTwoStationRouting();
             else if (QuestJournalVisible)
             {
                 if (QuestDetailVisible) DrawQuestDetail(snapshot.Progression);
@@ -1699,7 +1826,7 @@ public sealed class DishStationGame : Game
         else
         {
             PixelFont.Draw(spriteBatch!, pixel!, "FIRST SHIFT ARC COMPLETE", 27, 88, 1, Color.LightGreen);
-            PixelFont.Draw(spriteBatch!, pixel!, $"PRESS {Binding(GameInputAction.ShiftReportToggle)} FOR THE SHIFT REPORT OR {Binding(GameInputAction.JournalToggle)} TO REVIEW INDIVIDUAL DISCOVERIES.", 27, 107, 1, Color.White, 100);
+            PixelFont.Draw(spriteBatch!, pixel!, $"PRESS {Binding(GameInputAction.TwoStationRoutingToggle)} FOR TWO STATIONS, OR {Binding(GameInputAction.ShiftReportToggle)} FOR THE SHIFT REPORT.", 27, 107, 1, Color.White, 100);
         }
 
         var processHint = snapshot.ProcessCapture.Active is { } activeCapture
@@ -1804,6 +1931,44 @@ public sealed class DishStationGame : Game
             104, 468, 1, Color.LightGray, 105);
         PixelFont.Draw(spriteBatch!, pixel!, "BOTH PRESETS FACE THE SAME STARTING CONDITIONS; COMPARE THE MEASURED CONSEQUENCES.",
             104, 499, 1, Color.LightGray, 105);
+    }
+
+    private void DrawTwoStationRouting()
+    {
+        var view = TwoStationRoutingPresenter.Present(DishStationTwoStationsContent.Configuration,
+            twoStationWorld.Snapshot(), DishStationTwoStationsContent.Quest, selectedRoutingStation);
+        var accent = view.OutcomeMet ? Color.LightGreen : Color.Goldenrod;
+        DrawPanel(54, 62, 916, 478, new Color(17, 32, 43, 250), accent);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Title, 78, 82, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Situation, 78, 118, 1, Color.White, 122);
+        var x = 78f;
+        foreach (var station in view.Stations)
+        {
+            var stationAccent = station.Selected ? Color.Yellow : Color.CornflowerBlue;
+            DrawPanel(x, 176, 416, 176, new Color(24, 43, 54, 245), stationAccent);
+            PixelFont.Draw(spriteBatch!, pixel!, station.Name.ToUpperInvariant(), x + 18, 193, 2, stationAccent, 46);
+            PixelFont.Draw(spriteBatch!, pixel!, $"DEMAND  {station.Demand}\nSAME DECISION SLOT\nPOLICY  {station.Policy}", x + 18, 231, 1, Color.White, 50);
+            var evidence = station.Shortages is null
+                ? "NO TRIAL EVIDENCE YET"
+                : $"DONE {station.Completed}  SHORT {station.Shortages}  NET {station.NetValue}";
+            PixelFont.Draw(spriteBatch!, pixel!, evidence, x + 18, 319, 1,
+                station.Shortages == 0 ? Color.LightGreen : station.Shortages is null ? Color.LightGray : Color.OrangeRed, 50);
+            x += 438;
+        }
+        PixelFont.Draw(spriteBatch!, pixel!, view.Evidence.ToUpperInvariant(), 78, 378, 1, accent, 122);
+        if (view.OutcomeMet)
+        {
+            PixelFont.Draw(spriteBatch!, pixel!, "OUTCOME MET", 78, 409, 2, Color.LightGreen);
+            PixelFont.Draw(spriteBatch!, pixel!, view.Discovery, 250, 411, 1, Color.White, 94);
+        }
+        else
+            PixelFont.Draw(spriteBatch!, pixel!, $"COPIES {view.CopyCount}  TRIALS {view.TrialCount}", 78, 409, 1, Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!,
+            $"{Binding(GameInputAction.TwoStationRoutingPreviousStation)}/{Binding(GameInputAction.TwoStationRoutingNextStation)} STATION   {Binding(GameInputAction.TwoStationRoutingPreviousPolicy)}/{Binding(GameInputAction.TwoStationRoutingNextPolicy)} POLICY   {Binding(GameInputAction.TwoStationRoutingCopy)} COPY MAIN TO PATIO",
+            78, 467, 1, Color.LightGray, 122);
+        PixelFont.Draw(spriteBatch!, pixel!,
+            $"{Binding(GameInputAction.TwoStationRoutingRunTrial)} RUN BOTH STATIONS   {Binding(GameInputAction.TwoStationRoutingClose)} CLOSE",
+            78, 495, 1, Color.LightGray, 122);
     }
 
     private void DrawPlacementTools(DishStationSnapshot snapshot)
@@ -2577,7 +2742,9 @@ public sealed class DishStationGame : Game
         var receipt = progressionReceiptSeconds > 0 && progressionReceiptQuest is { } receiptQuest
             ? $"{receiptQuest}:L{progressionReceiptLevel}"
             : "none";
-        Window.Title = $"The Automation Game — [room={roomPresentationStatus}] [screen={screenRouter.Screen}] [modal={screenRouter.Modal}] [menu={menu}] [save={saveStatus}] [settings={settingsStatus}] [window={clientSettings.WindowMode}] [volume={clientSettings.MasterVolumePercent}] [ui={clientSettings.UiScalePercent}] [cameraSensitivity={clientSettings.CameraSensitivityPercent}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={QuestJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={QuestDetailVisible}] [report={ShiftReportVisible}] [help={HelpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [canvas={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] {note}";
+        var routing = twoStationWorld.Snapshot();
+        var routingProfile = DishStationTwoStationsContent.Configuration.Stations[selectedRoutingStation];
+        Window.Title = $"The Automation Game — [room={roomPresentationStatus}] [screen={screenRouter.Screen}] [modal={screenRouter.Modal}] [menu={menu}] [save={saveStatus}] [settings={settingsStatus}] [window={clientSettings.WindowMode}] [volume={clientSettings.MasterVolumePercent}] [ui={clientSettings.UiScalePercent}] [cameraSensitivity={clientSettings.CameraSensitivityPercent}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={QuestJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={QuestDetailVisible}] [report={ShiftReportVisible}] [help={HelpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [canvas={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] [routingStation={routingProfile.Id}] [routingPolicy={routing.PolicyFor(routingProfile.Id)}] [routingTrials={routing.Trials.Count}] [routingShortages={routing.LatestTrial?.TotalShortages.ToString() ?? "none"}] {note}";
     }
 
     private readonly record struct WorkstationPresentation(
@@ -2656,6 +2823,14 @@ internal enum ClientControl
     AutomationEditorSaveBaseline,
     AutomationEditorSaveVariant,
     AutomationEditorRunComparison,
+    ToggleTwoStationRouting,
+    TwoStationRoutingPreviousStation,
+    TwoStationRoutingNextStation,
+    TwoStationRoutingPreviousPolicy,
+    TwoStationRoutingNextPolicy,
+    TwoStationRoutingCopy,
+    TwoStationRoutingRunTrial,
+    TwoStationRoutingClose,
     ToggleGodMode,
     GodAddDirty,
     GodSetCleanSupply,

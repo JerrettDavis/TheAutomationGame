@@ -4,9 +4,9 @@ This is the reviewer-facing visual index for delivered session features. The PNG
 
 ## Current integrated build
 
-![Completed first-shift scorecard](screenshots/first-shift/shift-report.png)
+![Two stations with fitted routing policies](screenshots/first-shift/two-stations.png)
 
-The retained set was captured on 2026-08-12 from the integrated S001–S029 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, rendered the representative benchmark, and resumed the saved level-7 career.
+The retained set was captured on 2026-08-12 from the integrated S001–S030 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, ran the copied and fitted two-station trials, rendered the representative benchmark, and resumed the saved level-7 career.
 
 ## Historical delivery mapping
 
@@ -41,6 +41,7 @@ The retained set was captured on 2026-08-12 from the integrated S001–S029 buil
 | S027 | Contextual Dialogue and Barks | [shift window](screenshots/first-shift/shift-window-running.png) | Character-reactive live shift presentation; routing/cooldown remains deterministically tested |
 | S028 | First-Shift Narrative Pass | [completed quest detail](screenshots/first-shift/quest-complete-detail.png) | Coherent authored chapter outcome and discovery record |
 | S029 | Lightweight Shift Economy | [shift report](screenshots/first-shift/shift-report.png) | Frozen value, labor, staffing, rework, shortage, incident, investment, total-cost, and net scorecard |
+| S030 | Two Stations, One Problem | [two-station routing board](screenshots/first-shift/two-stations.png) | Same routing decision slot at both stations, demand-fitted policies, zero-shortage outcome, and authored discovery |
 
 ## Additional retained review frames
 
@@ -63,7 +64,7 @@ For each new delivered client-facing session:
 
 1. Extend the native journey so it reaches the feature through its real player/application path.
 2. Capture the smallest frame that visibly demonstrates the outcome.
-3. Run `./tools/ui-smoke.ps1 -AllowDesktopInput -RetainScreenshotsPath docs/screenshots/first-shift` on an idle Windows desktop.
+3. Run `./tools/ui-smoke.ps1 -AllowDesktopInput -RetainScreenshotsPath docs/screenshots/first-shift` on an idle Windows desktop. In a detached Windows session, add `-SemanticOnly`; this skips pointer assertions but still drives authoritative controls and saves actual Stride back-buffer frames.
 4. Inspect the changed frame and add the new session mapping here.
 5. Commit the screenshot with the implementation only after the representative headless and automated gates pass.
 

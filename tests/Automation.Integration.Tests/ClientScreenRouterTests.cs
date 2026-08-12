@@ -143,6 +143,20 @@ public sealed class ClientScreenRouterTests
         Assert.Equal(ClientModal.None, router.Modal);
     }
 
+    [Fact]
+    public void TwoStationRoutingIsGameplayOnlyAndReplacesOtherModals()
+    {
+        var router = new ClientScreenRouter();
+        router.Initialize(hasCareerSave: false);
+        Assert.False(router.ToggleTwoStationRouting());
+        router.ShowCareer(briefingComplete: true);
+        router.ToggleJournal();
+        Assert.True(router.ToggleTwoStationRouting());
+        Assert.Equal(ClientModal.TwoStationRouting, router.Modal);
+        Assert.False(router.ToggleTwoStationRouting());
+        Assert.Equal(ClientModal.None, router.Modal);
+    }
+
     private static ClientScreenRouter GameplayRouter()
     {
         var router = new ClientScreenRouter();

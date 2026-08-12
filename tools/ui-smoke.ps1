@@ -1,6 +1,7 @@
 param(
     [switch]$KeepOpen,
     [switch]$AllowDesktopInput,
+    [switch]$SemanticOnly,
     [string]$Configuration = "Release",
     [string]$RetainScreenshotsPath
 )
@@ -178,6 +179,19 @@ function Save-WindowScreenshot([System.Diagnostics.Process]$Process, [System.Dra
     # to settle before asking DWM for the rendered window.
     Start-Sleep -Milliseconds 200
     [NativeGameDriver]::DwmFlush() | Out-Null
+    if (-not [string]::IsNullOrWhiteSpace($script:screenshotRequestFile)) {
+        $path = Join-Path $env:TEMP "automation-game-ui-smoke-$Name.png"
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+        $script:screenshotSequence++
+        [System.IO.File]::WriteAllText($script:screenshotRequestFile, "$($script:screenshotSequence)|$path")
+        $deadline = [DateTime]::UtcNow.AddSeconds(10)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if ((Test-Path -LiteralPath $path) -and (Get-Item -LiteralPath $path).Length -gt 0) { return $path }
+            if ($Process.HasExited) { throw "Client exited while capturing '$Name'." }
+            Start-Sleep -Milliseconds 50
+        }
+        throw "Timed out waiting for render-thread screenshot '$Name'."
+    }
     $frame = New-Object NativeGameDriver+RECT
     $frameSize = [Runtime.InteropServices.Marshal]::SizeOf($frame)
     $hasFrame = [NativeGameDriver]::DwmGetWindowAttribute($Process.MainWindowHandle, 9, [ref]$frame, $frameSize) -eq 0
@@ -232,10 +246,13 @@ function Save-WindowScreenshot([System.Diagnostics.Process]$Process, [System.Dra
 $leftmost = [System.Windows.Forms.Screen]::AllScreens | Sort-Object { $_.Bounds.X } | Select-Object -First 1
 $windowBounds = New-Object System.Drawing.Rectangle ($leftmost.Bounds.X + 40), ($leftmost.Bounds.Y + 40), 1280, 800
 $controlFile = Join-Path $env:TEMP "automation-game-ui-$([Guid]::NewGuid().ToString('N')).control"
+$screenshotRequestFile = Join-Path $env:TEMP "automation-game-ui-$([Guid]::NewGuid().ToString('N')).screenshot"
+$screenshotSequence = 0
 $saveFile = Join-Path $env:TEMP "automation-game-career-$([Guid]::NewGuid().ToString('N')).json"
 $playtestFile = Join-Path $env:TEMP "automation-game-playtest-$([Guid]::NewGuid().ToString('N')).json"
 $controlSequence = 0
 $previousControlFile = [Environment]::GetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE", "Process")
+$previousScreenshotRequestFile = [Environment]::GetEnvironmentVariable("AUTOMATION_SCREENSHOT_REQUEST_FILE", "Process")
 $previousWindowed = [Environment]::GetEnvironmentVariable("AUTOMATION_WINDOWED", "Process")
 $previousSavePath = [Environment]::GetEnvironmentVariable("AUTOMATION_SAVE_PATH", "Process")
 $previousPlaytestPath = [Environment]::GetEnvironmentVariable("AUTOMATION_PLAYTEST_EVIDENCE_PATH", "Process")
@@ -247,6 +264,7 @@ $previousDiagnosticTitle = [Environment]::GetEnvironmentVariable("AUTOMATION_DIA
 # Verify the ordinary player process does not expose consequence-bypassing tools
 # before the final shift outcome. The semantic driver is deliberately absent.
 [Environment]::SetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE", $null, "Process")
+[Environment]::SetEnvironmentVariable("AUTOMATION_SCREENSHOT_REQUEST_FILE", $screenshotRequestFile, "Process")
 [Environment]::SetEnvironmentVariable("AUTOMATION_WINDOWED", "1", "Process")
 [Environment]::SetEnvironmentVariable("AUTOMATION_DISABLE_CAREER_SAVE", "1", "Process")
 [Environment]::SetEnvironmentVariable("AUTOMATION_DEVELOPER_TOOLS", $null, "Process")
@@ -256,6 +274,7 @@ try {
 }
 finally {
     [Environment]::SetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE", $previousControlFile, "Process")
+    [Environment]::SetEnvironmentVariable("AUTOMATION_SCREENSHOT_REQUEST_FILE", $previousScreenshotRequestFile, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_WINDOWED", $previousWindowed, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_DISABLE_CAREER_SAVE", $previousDisableSave, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_DEVELOPER_TOOLS", $previousDeveloperTools, "Process")
@@ -270,8 +289,12 @@ try {
 finally {
     if (-not $playerProcess.HasExited) { Stop-Process -Id $playerProcess.Id }
 }
+if (Test-Path -LiteralPath $screenshotRequestFile) {
+    [System.IO.File]::Delete($screenshotRequestFile)
+}
 
 [Environment]::SetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE", $controlFile, "Process")
+[Environment]::SetEnvironmentVariable("AUTOMATION_SCREENSHOT_REQUEST_FILE", $screenshotRequestFile, "Process")
 [Environment]::SetEnvironmentVariable("AUTOMATION_WINDOWED", "1", "Process")
 [Environment]::SetEnvironmentVariable("AUTOMATION_SAVE_PATH", $saveFile, "Process")
 [Environment]::SetEnvironmentVariable("AUTOMATION_PLAYTEST_EVIDENCE_PATH", $playtestFile, "Process")
@@ -281,6 +304,7 @@ try {
 }
 finally {
     [Environment]::SetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE", $previousControlFile, "Process")
+    [Environment]::SetEnvironmentVariable("AUTOMATION_SCREENSHOT_REQUEST_FILE", $previousScreenshotRequestFile, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_WINDOWED", $previousWindowed, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_SAVE_PATH", $previousSavePath, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_PLAYTEST_EVIDENCE_PATH", $previousPlaytestPath, "Process")
@@ -294,24 +318,40 @@ try {
     Wait-ForTitle $process "[intro=1/5:Guided]" 3
     Start-Sleep -Milliseconds 150
     $introWelcomeScreenshot = Save-WindowScreenshot $process $windowBounds "intro-welcome"
-    Click-UntilTitle $process 748 480 "[intro=2/5:Guided]"
-    Click-UntilTitle $process 748 480 "[intro=3/5:Guided]"
-    Click-UntilTitle $process 748 480 "[intro=4/5:Guided]"
-    Click-UntilTitle $process 512 363 "[intro=4/5:Contextual]"
+    if ($SemanticOnly) {
+        Send-ControlUntilTitle $process "IntroNext" "[intro=2/5:Guided]"
+        Send-ControlUntilTitle $process "IntroNext" "[intro=3/5:Guided]"
+        Send-ControlUntilTitle $process "IntroNext" "[intro=4/5:Guided]"
+    }
+    else {
+        Click-UntilTitle $process 748 480 "[intro=2/5:Guided]"
+        Click-UntilTitle $process 748 480 "[intro=3/5:Guided]"
+        Click-UntilTitle $process 748 480 "[intro=4/5:Guided]"
+        Click-UntilTitle $process 512 363 "[intro=4/5:Contextual]"
+    }
     Start-Sleep -Milliseconds 150
     $introGuidanceScreenshot = Save-WindowScreenshot $process $windowBounds "intro-guidance"
-    Click-UntilTitle $process 748 480 "[intro=5/5:Contextual]"
-    Click-UntilTitle $process 327 368 "[comfort=motion=reduced,contrast=standard]"
-    Click-UntilTitle $process 657 368 "[comfort=motion=reduced,contrast=high]"
+    if ($SemanticOnly) {
+        Send-ControlUntilTitle $process "IntroNext" "[intro=5/5:Guided]"
+    }
+    else {
+        Click-UntilTitle $process 748 480 "[intro=5/5:Contextual]"
+        Click-UntilTitle $process 327 368 "[comfort=motion=reduced,contrast=standard]"
+        Click-UntilTitle $process 657 368 "[comfort=motion=reduced,contrast=high]"
+    }
     Start-Sleep -Milliseconds 150
     $introComfortScreenshot = Save-WindowScreenshot $process $windowBounds "intro-comfort"
-    Click-UntilTitle $process 748 480 "[intro=done]"
+    if ($SemanticOnly) { Send-ControlUntilTitle $process "IntroNext" "[intro=done]" }
+    else { Click-UntilTitle $process 748 480 "[intro=done]" }
     Wait-ForStage $process "RestockFirstDish"
-    Click-UntilTitle $process 854 535 "[help=True]"
+    if ($SemanticOnly) { Send-ControlUntilTitle $process "ToggleHelp" "[help=True]" }
+    else { Click-UntilTitle $process 854 535 "[help=True]" }
     Start-Sleep -Milliseconds 150
     $shiftHandbookScreenshot = Save-WindowScreenshot $process $windowBounds "shift-handbook"
-    Click-UntilTitle $process 860 93 "[help=False]"
+    if ($SemanticOnly) { Send-ControlUntilTitle $process "ToggleHelp" "[help=False]" }
+    else { Click-UntilTitle $process 860 93 "[help=False]" }
     Start-Sleep -Milliseconds 750
+    if (-not $SemanticOnly) {
     foreach ($fixture in @(
         @{ Name = "Scrape"; X = 440; Y = 158 },
         @{ Name = "Rack"; X = 548; Y = 200 },
@@ -340,13 +380,16 @@ try {
     Send-GameControl $process "ContextWork"
     Wait-ForTitle $process "[player=1,2]" 3
     Wait-ForTitle $process "[layout=Linear] [build=False] [route=17]" 3
+    }
 
     Send-GameControl $process "ToggleGodMode"
     Wait-ForTitle $process "[god=True]" 3
     Send-GameControl $process "TogglePlacementMode"
     Wait-ForTitle $process "[build=True]" 3
-    Move-GamePointer $process 404 160 -Click
-    Wait-ForTitle $process "[layout=Custom] [build=True] [route=18]" 3
+    if (-not $SemanticOnly) {
+        Move-GamePointer $process 404 160 -Click
+        Wait-ForTitle $process "[layout=Custom] [build=True] [route=18]" 3
+    }
     Start-Sleep -Milliseconds 150
     $placementScreenshot = Save-WindowScreenshot $process $windowBounds "placement"
     Send-GameControl $process "UndoPlacement"
@@ -377,17 +420,31 @@ try {
     Wait-ForTitle $process "[receipt=ClockIn:L2]" 3
     Start-Sleep -Milliseconds 150
     $progressionReceiptScreenshot = Save-WindowScreenshot $process $windowBounds "progression-receipt"
-    Click-UntilTitle $process 760 535 "[journal=True]"
+    if ($SemanticOnly) { Send-ControlUntilTitle $process "ToggleQuestJournal" "[journal=True]" }
+    else { Click-UntilTitle $process 760 535 "[journal=True]" }
     Wait-ForTitle $process "[journalQuest=FindTheConstraint] [detail=False]" 3
-    Click-UntilTitle $process 400 160 "[journalQuest=ClockIn] [detail=False]"
-    Click-UntilTitle $process 400 203 "[journalQuest=FindTheConstraint] [detail=False]"
+    if ($SemanticOnly) {
+        Send-ControlUntilTitle $process "JournalPrevious" "[journalQuest=ClockIn] [detail=False]"
+        Send-ControlUntilTitle $process "JournalNext" "[journalQuest=FindTheConstraint] [detail=False]"
+    }
+    else {
+        Click-UntilTitle $process 400 160 "[journalQuest=ClockIn] [detail=False]"
+        Click-UntilTitle $process 400 203 "[journalQuest=FindTheConstraint] [detail=False]"
+    }
     Start-Sleep -Milliseconds 150
     $earlyJournalScreenshot = Save-WindowScreenshot $process $windowBounds "journal-early"
-    Click-UntilTitle $process 678 518 "[journalQuest=FindTheConstraint] [detail=True]"
+    if ($SemanticOnly) { Send-ControlUntilTitle $process "ToggleQuestDetail" "[journalQuest=FindTheConstraint] [detail=True]" }
+    else { Click-UntilTitle $process 678 518 "[journalQuest=FindTheConstraint] [detail=True]" }
     Start-Sleep -Milliseconds 150
     $activeQuestDetailScreenshot = Save-WindowScreenshot $process $windowBounds "quest-active-detail"
-    Click-UntilTitle $process 678 503 "[detail=False]"
-    Click-UntilTitle $process 808 518 "[journal=False]"
+    if ($SemanticOnly) {
+        Send-ControlUntilTitle $process "JournalBack" "[detail=False]"
+        Send-ControlUntilTitle $process "ToggleQuestJournal" "[journal=False]"
+    }
+    else {
+        Click-UntilTitle $process 678 503 "[detail=False]"
+        Click-UntilTitle $process 808 518 "[journal=False]"
+    }
 
     Send-GameControl $process "ToggleRush"
     Wait-ForStage $process "InspectShortage" 8
@@ -464,6 +521,22 @@ try {
     Wait-ForTitle $process "[trial=Passed:3/3]" 3
     Wait-ForTitle $process "[receipt=OwnTheShift:L7]" 3
 
+    Send-GameControl $process "ToggleTwoStationRouting"
+    Wait-ForTitle $process "[modal=TwoStationRouting]" 3
+    Send-GameControl $process "TwoStationRoutingCopy"
+    Send-GameControl $process "TwoStationRoutingRunTrial"
+    Wait-ForTitle $process "[routingTrials=1] [routingShortages=1]" 3
+    Send-GameControl $process "TwoStationRoutingNextStation"
+    Wait-ForTitle $process "[routingStation=PatioServiceStation]" 3
+    Send-GameControl $process "TwoStationRoutingPreviousPolicy"
+    Wait-ForTitle $process "[routingPolicy=PlatesFirst]" 3
+    Send-GameControl $process "TwoStationRoutingRunTrial"
+    Wait-ForTitle $process "[routingTrials=2] [routingShortages=0]" 3
+    Start-Sleep -Milliseconds 150
+    $twoStationScreenshot = Save-WindowScreenshot $process $windowBounds "two-stations"
+    Send-GameControl $process "TwoStationRoutingClose"
+    Wait-ForTitle $process "[modal=None]" 3
+
     Send-GameControl $process "CameraZoomIn"
     Wait-ForTitle $process "[zoom=1.10]" 3
     Send-GameControl $process "CameraPanRight"
@@ -471,7 +544,7 @@ try {
     Send-GameControl $process "CameraReset"
     Wait-ForTitle $process "[zoom=1.00] [cam=0,0]" 3
 
-    $screenshots = @($lockedToolsScreenshot, $introWelcomeScreenshot, $introGuidanceScreenshot, $introComfortScreenshot, $shiftHandbookScreenshot, $progressionReceiptScreenshot, $earlyJournalScreenshot, $activeQuestDetailScreenshot, $placementScreenshot, $scalingScreenshot, $shiftReviewScreenshot, $shiftRunningScreenshot)
+    $screenshots = @($lockedToolsScreenshot, $introWelcomeScreenshot, $introGuidanceScreenshot, $introComfortScreenshot, $shiftHandbookScreenshot, $progressionReceiptScreenshot, $earlyJournalScreenshot, $activeQuestDetailScreenshot, $placementScreenshot, $scalingScreenshot, $shiftReviewScreenshot, $shiftRunningScreenshot, $twoStationScreenshot)
     Start-Sleep -Milliseconds 150
     $screenshots += Save-WindowScreenshot $process $windowBounds "runtime"
     foreach ($lens in @("State", "Knowledge", "Automation", "Runtime", "Responsibility", "Reality", "Process", "State")) {
@@ -508,10 +581,12 @@ try {
     Wait-ForTitle $process "[detail=False]" 3
     Send-GameControl $process "ToggleQuestJournal"
     Wait-ForTitle $process "[journal=False]" 3
-    Click-UntilTitle $process 948 535 "[report=True]"
+    if ($SemanticOnly) { Send-ControlUntilTitle $process "ToggleShiftReport" "[report=True]" }
+    else { Click-UntilTitle $process 948 535 "[report=True]" }
     Start-Sleep -Milliseconds 2000
     $screenshots += Save-WindowScreenshot $process $windowBounds "shift-report"
-    Click-UntilTitle $process 858 540 "[report=False]"
+    if ($SemanticOnly) { Send-ControlUntilTitle $process "ToggleShiftReport" "[report=False]" }
+    else { Click-UntilTitle $process 858 540 "[report=False]" }
     Send-GameControl $process "ToggleGodMode"
     Wait-ForTitle $process "[god=True]" 3
     Start-Sleep -Milliseconds 100
@@ -534,7 +609,11 @@ try {
 
     Stop-Process -Id $process.Id
     $process.WaitForExit(5000) | Out-Null
+    if (Test-Path -LiteralPath $screenshotRequestFile) {
+        [System.IO.File]::Delete($screenshotRequestFile)
+    }
     [Environment]::SetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE", $controlFile, "Process")
+    [Environment]::SetEnvironmentVariable("AUTOMATION_SCREENSHOT_REQUEST_FILE", $screenshotRequestFile, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_WINDOWED", "1", "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_SAVE_PATH", $saveFile, "Process")
     try {
@@ -542,6 +621,7 @@ try {
     }
     finally {
         [Environment]::SetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE", $previousControlFile, "Process")
+        [Environment]::SetEnvironmentVariable("AUTOMATION_SCREENSHOT_REQUEST_FILE", $previousScreenshotRequestFile, "Process")
         [Environment]::SetEnvironmentVariable("AUTOMATION_WINDOWED", $previousWindowed, "Process")
         [Environment]::SetEnvironmentVariable("AUTOMATION_SAVE_PATH", $previousSavePath, "Process")
     }
@@ -550,15 +630,26 @@ try {
     Wait-ForTitle $process "[menu=continue] [save=FOUND]" 5
     Start-Sleep -Milliseconds 150
     $screenshots += Save-WindowScreenshot $process $windowBounds "career-continue"
-    Click-UntilTitle $process 650 280 "[menu=confirm-new]"
+    if ($SemanticOnly) {
+        Send-ControlUntilTitle $process "MenuNext" "[menu=new]"
+        Send-ControlUntilTitle $process "MenuConfirm" "[menu=confirm-new]"
+    }
+    else { Click-UntilTitle $process 650 280 "[menu=confirm-new]" }
     Start-Sleep -Milliseconds 150
     $screenshots += Save-WindowScreenshot $process $windowBounds "career-new-confirm"
-    Click-UntilTitle $process 670 412 "[menu=new]"
-    Click-UntilTitle $process 350 280 "[menu=closed]"
+    if ($SemanticOnly) {
+        Send-ControlUntilTitle $process "MenuBack" "[menu=new]"
+        Send-ControlUntilTitle $process "MenuPrevious" "[menu=continue]"
+        Send-ControlUntilTitle $process "MenuConfirm" "[menu=closed]"
+    }
+    else {
+        Click-UntilTitle $process 670 412 "[menu=new]"
+        Click-UntilTitle $process 350 280 "[menu=closed]"
+    }
     Wait-ForTitle $process "[save=LOADED]" 3
     Wait-ForTitle $process "[intro=done]" 3
     Wait-ForTitle $process "[quest=complete]" 3
-    Wait-ForTitle $process "[comfort=motion=reduced,contrast=high]" 3
+    Wait-ForTitle $process $(if ($SemanticOnly) { "[comfort=motion=full,contrast=standard]" } else { "[comfort=motion=reduced,contrast=high]" }) 3
     Wait-ForTitle $process "[level=7] [xp=3400]" 3
     Wait-ForTitle $process "[trial=Passed:3/3]" 3
     Send-GameControl $process "ToggleShiftReport"
@@ -597,6 +688,9 @@ finally {
     }
     if (Test-Path -LiteralPath $controlFile) {
         [System.IO.File]::Delete($controlFile)
+    }
+    if (Test-Path -LiteralPath $screenshotRequestFile) {
+        [System.IO.File]::Delete($screenshotRequestFile)
     }
     if (Test-Path -LiteralPath $saveFile) {
         [System.IO.File]::Delete($saveFile)

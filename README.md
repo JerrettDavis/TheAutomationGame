@@ -219,6 +219,7 @@ Keyboard defaults are defined by a versioned, engine-neutral action-binding prof
 - `N` toggles the new hire, `T` transfers the happy-path flow, and `Y` adds the rush glass-priority knowledge;
 - `U` documents the uncommon-tray handling knowledge when that exception is discovered;
 - `6` opens the paused Automation Rule Editor. Use `Up` / `Down` to select enabled state, rack/readiness conditions, or the closed Start Washer action; `Space` changes an editable value, `Enter` validates/applies, and `Esc` discards. `B` saves the applied rule as baseline, `V` saves it as variant, and `R` runs both under the same controlled seed/scenario. The panel shows metric deltas plus authoritative inputs, predicates, selected effect, and command outcome;
+- after the first shift, `7` opens **Two Stations, One Problem**. `Left` / `Right` selects main or patio in the same routing decision slot, `Up` / `Down` changes that station's policy, `C` copies main to patio, `Enter` runs both stations under the same authored horizon, and `Esc` closes. The board shows authoritative completion, shortage, and net consequences and reveals the discovery only after both demands are supplied;
 - `I` inspects an automation incident and `P` replays the captured incident against the currently applied player rule;
 - scenario-driving trace and reliability-window actions remain available to explicit developer-session controls and have no production WASD binding;
 - `V` cycles the currently unlocked reality, process, state, knowledge, automation, runtime, and responsibility lenses;
@@ -234,6 +235,8 @@ dotnet build TheAutomationGame.sln -c Release
 ```
 
 The smoke driver takes exclusive control of the shared OS cursor and opens/resizes real windows; run it only while the desktop is idle. The required `-AllowDesktopInput` switch prevents accidental takeover. It first launches an ordinary player process and verifies developer tools are locked, then launches the Stride executable and combines semantic controls with real OS pointer movement and clicks. Pointer paths cover every intro page, guidance and comfort selection, handbook, quest rows and details, scorecard, Continue, and New Career confirmation in addition to sandbox movement and work. It completes the episode and live reliability window, opens every lens, validates placement, checks save–mutate–restore while paused, renders the 100k benchmark subset, captures the major HUD and modal layers through DPI-safe settled-frame capture, validates a 4K-scale viewport, and resumes the same level-7 career in a second process. Use `-KeepOpen` to retain the resumed window for review.
+
+The client writes smoke screenshots from its Stride back buffer when the runner supplies its private request channel, so artifact capture does not depend on a desktop screen DC. On a detached Windows session, add `-SemanticOnly`: the same progression, authoritative commands, modals, screenshots, evidence, save/restore, and resume checks run without cursor injection. This mode does not replace the default pointer-path gate on an interactive desktop.
 
 To refresh checked-in reviewer artifacts after a client-facing delivery, run `./tools/ui-smoke.ps1 -AllowDesktopInput -RetainScreenshotsPath docs/screenshots/first-shift`, inspect the changed images, and update the gallery mapping for the delivered session.
 

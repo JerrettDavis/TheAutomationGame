@@ -25,6 +25,8 @@ public sealed class InputActionMapTests
         Assert.True(profile.Matches(GameInputAction.ProcessEditorToggle, KeyboardKey.Enter));
         Assert.Equal(InputActionContext.ProcessEditor, InputActionCatalog.ContextOf(GameInputAction.ProcessEditorMoveUp));
         Assert.True(profile.Matches(GameInputAction.AutomationEditorToggle, KeyboardKey.Digit6));
+        Assert.True(profile.Matches(GameInputAction.TwoStationRoutingToggle, KeyboardKey.Digit7));
+        Assert.Equal(InputActionContext.TwoStationRouting, InputActionCatalog.ContextOf(GameInputAction.TwoStationRoutingRunTrial));
         Assert.Equal(InputActionContext.AutomationEditor, InputActionCatalog.ContextOf(GameInputAction.AutomationEditorToggleValue));
         Assert.Equal(InputActionContext.Gameplay, InputActionCatalog.ContextOf(GameInputAction.ProcessCaptureToggle));
         Assert.Equal("C / HOME", profile.DisplayName(GameInputAction.CameraReset));
@@ -111,6 +113,26 @@ public sealed class InputActionMapTests
         Assert.True(migrated.Matches(GameInputAction.AutomationEditorSaveBaseline, KeyboardKey.B));
         Assert.True(migrated.Matches(GameInputAction.AutomationEditorSaveVariant, KeyboardKey.V));
         Assert.True(migrated.Matches(GameInputAction.AutomationEditorRunComparison, KeyboardKey.R));
+    }
+
+    [Fact]
+    public void SchemaFourProfileAddsTwoStationControlsAndKeepsExistingRemaps()
+    {
+        var legacy = InputBindingProfile.Default
+            .WithBinding(GameInputAction.Interact, KeyboardKey.Space)
+            .Bindings
+            .Where(binding => InputActionCatalog.ContextOf(binding.Action) != InputActionContext.TwoStationRouting &&
+                              binding.Action != GameInputAction.TwoStationRoutingToggle)
+            .ToArray();
+
+        var migrated = new InputBindingProfile(4, legacy);
+
+        Assert.Equal(InputBindingProfile.CurrentSchemaVersion, migrated.SchemaVersion);
+        Assert.True(migrated.Matches(GameInputAction.Interact, KeyboardKey.Space));
+        Assert.False(migrated.Matches(GameInputAction.Interact, KeyboardKey.E));
+        Assert.True(migrated.Matches(GameInputAction.TwoStationRoutingToggle, KeyboardKey.Digit7));
+        Assert.True(migrated.Matches(GameInputAction.TwoStationRoutingCopy, KeyboardKey.C));
+        Assert.True(migrated.Matches(GameInputAction.TwoStationRoutingRunTrial, KeyboardKey.Enter));
     }
 
     [Fact]

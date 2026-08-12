@@ -15,6 +15,7 @@ public static class StrideKeyboardAdapter
         KeyboardKey.Z => Keys.Z,
         KeyboardKey.Digit1 => Keys.D1, KeyboardKey.Digit2 => Keys.D2, KeyboardKey.Digit3 => Keys.D3,
         KeyboardKey.Digit4 => Keys.D4, KeyboardKey.Digit5 => Keys.D5, KeyboardKey.Digit6 => Keys.D6,
+        KeyboardKey.Digit7 => Keys.D7,
         KeyboardKey.Left => Keys.Left, KeyboardKey.Right => Keys.Right, KeyboardKey.Up => Keys.Up, KeyboardKey.Down => Keys.Down,
         KeyboardKey.Enter => Keys.Enter, KeyboardKey.Space => Keys.Space, KeyboardKey.Escape => Keys.Escape,
         KeyboardKey.Tab => Keys.Tab, KeyboardKey.Backspace => Keys.Back, KeyboardKey.Home => Keys.Home,

@@ -719,13 +719,24 @@ N4 Player Tools is complete through process capture/editing, restricted automati
 - ADR-0017 records the authoritative rate/count/projection boundary, one-time first-shift investment semantics, replay-derived persistence, and explicit exclusion of a general ledger.
 - `git diff --check` passed. Native GUI/e2e was not run: a visible first-show cannot be proven nonactivating, and the smoke driver controls the shared cursor. No GUI was launched; live-summary and scorecard acceptance are **PENDING — user-run** using the supplied S029 steps.
 
-### S030 — Two Stations, One Problem — TODO
+### S030 — Two Stations, One Problem — DONE
 
 **Value:** Player encounters interchangeable routing policies naturally.
 
 **Deliver:** second station/problem variation, policy choice or refactor opportunity, measurable consequences.
 
 **Proof:** player can use two different routing strategies in equivalent interface/decision slot.
+
+**Evidence (2026-08-12):**
+
+- Authored a distinct `scenario.restaurant.two-stations` and `quest.restaurant.two-stations.one-problem`. The main dish room requests glasses, the patio requests plates, both begin in the same routing decision slot with glass-first, and the common trial horizon is five authoritative ticks. Schema-v1 validates the optional concrete block and includes it in the deterministic content hash.
+- Added engine-neutral station IDs/profiles/configuration plus `TwoStationRoutingWorld`. Explicit set, copy, and run-trial commands own all consequential changes. Trials use real `DishStationWorld` runs and expose completion, shortage, work, travel, throughput value, cost, and net value; replay restores policies, copy count, and complete trial history.
+- The deterministic seed-42 headless episode first copies glass-first from main to patio: both stations complete one dish, main has zero shortages, patio has one, and combined net is 120. Fitting patio to plates-first reruns the same horizon with both supplied, zero shortages, and combined net 200. Repeated output was byte-identical with SHA-256 `2fc321483ff626665d0366f50a31a7f459cfb83b4dcbdc0fe05af3046e2da6ab`.
+- Added the post-shift `7` routing board. Left/right selects either station in the same visible decision slot, up/down changes its policy, `C` copies main to patio, `Enter` runs both stations, and `Esc` closes. The first-shift simulation pauses under the modal; presentation reads immutable routing snapshots and does not calculate outcomes.
+- The board withholds the authored discovery until the latest authoritative trial has zero shortages with distinct fitted policies. Player-facing copy avoids naming Strategy before S031/S032.
+- Native Release semantic smoke passed `EpisodeComplete`, copied/reran the mismatched trial (`1` shortage), fitted patio/reran (`0` shortages), validated playtest evidence and career resume, and retained [the visually inspected outcome frame](screenshots/first-shift/two-stations.png). Render-thread capture keeps reviewer artifacts available in detached Windows sessions; default smoke mode still retains OS-pointer coverage on an interactive desktop.
+- ADR-0018 records the concrete two-station boundary, command/replay authority, per-action trial cost, deferred generic abstraction, and current career-save exclusion.
+- `dotnet build TheAutomationGame.sln -c Release --no-restore` passed with 0 warnings/errors. `dotnet test TheAutomationGame.sln -c Release --no-build` passed 273/273: Content 61, Domain 28, Simulation 57, Integration 127. Production content compiled to 21 definitions with SHA-256 `33d12d1f5612c3140d6e5bcf76ec6e6fc01ca4182efe0abf413dc972e2e0df64`.
 
 ### S031 — Pattern Knowledge and Codex Foundation — TODO
 
