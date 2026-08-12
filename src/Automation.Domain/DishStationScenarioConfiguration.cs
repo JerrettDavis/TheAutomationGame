@@ -17,6 +17,7 @@ public sealed record DishStationScenarioConfiguration
     public required bool InitialRushEnabled { get; init; }
     public required bool InitialNewHireEnabled { get; init; }
     public required DishProcessSpecification InitialNewHireSpecification { get; init; }
+    public ProcessRoutingPolicy InitialNewHireRoutingPolicy { get; init; } = ProcessRoutingPolicy.CapturedOrder;
     public required WasherAutomationPolicy InitialAutomationPolicy { get; init; }
     public required DishStationLayout InitialLayout { get; init; }
     public DishStationEconomyConfiguration Economy { get; init; } = DishStationEconomyConfiguration.Default;
@@ -37,6 +38,7 @@ public sealed record DishStationScenarioConfiguration
         if (StickyReadyFaultAfterAutomatedStarts < 0) throw new ArgumentOutOfRangeException(nameof(StickyReadyFaultAfterAutomatedStarts));
         if (StickyReadyFaultPermillePerStart is < 0 or > 1000) throw new ArgumentOutOfRangeException(nameof(StickyReadyFaultPermillePerStart));
         if (DemandIntervalTicks <= 0) throw new ArgumentOutOfRangeException(nameof(DemandIntervalTicks));
+        if (!Enum.IsDefined(InitialNewHireRoutingPolicy)) throw new ArgumentOutOfRangeException(nameof(InitialNewHireRoutingPolicy));
         Economy.Validate();
         return this;
     }

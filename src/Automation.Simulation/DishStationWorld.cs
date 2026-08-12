@@ -1024,7 +1024,8 @@ public sealed class DishStationWorld
         }
         else
         {
-            var preferGlass = appliedProcess?.RoutingPolicy switch
+            var routingPolicy = appliedProcess?.RoutingPolicy ?? Configuration.InitialNewHireRoutingPolicy;
+            var preferGlass = routingPolicy switch
             {
                 ProcessRoutingPolicy.GlassesFirst => glassHasWork,
                 ProcessRoutingPolicy.PlatesFirst => false,
