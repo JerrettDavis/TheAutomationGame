@@ -110,27 +110,46 @@ A scenario fails content QA if players can only succeed by guessing the designer
 
 ## First-hours human validation protocol
 
-Native automation proves reachability and projection, not comprehension or human-paced duration. A first-hours readiness claim therefore requires recorded fresh-career sessions under these conditions:
+Native automation proves reachability and projection, not comprehension or human-paced duration. S035 is therefore a research episode, not a simulation episode:
+
+- **starting state:** S034 has a tested, presentation-complete restaurant chapter but no human session evidence;
+- **participant episode:** a new player completes a fresh career through **Own the Shift**, explains the observed system in their own words, then compares the two restaurant stations and describes the recurring routing move before choosing the Codex reflection that reveals its conventional name;
+- **facilitator behavior:** observe first attempts, stalls, false assumptions, ignored UI, predictions, retries, and exact interventions without naming the intended concepts or directing consequential actions;
+- **terminal outcome:** at least five versioned human observations and their objective completion exports produce one deterministic readiness report with a pass/fail result for every N5 criterion and owned follow-ups for repeated blockers or critical UI/accessibility issues;
+- **non-human proof:** automated fixture sessions validate collection, rejection, aggregation, and report formatting but are explicitly excluded from the human sample count.
+
+### Session procedure
 
 1. Launch `.\tools\playtest-first-hours.ps1 -PlayerId <anonymous-id>` to use a clean, isolated save and the normal visible Windows client. Do not use semantic-driver controls, god tools, or facilitator-directed actions.
-2. Keep the generated `facilitator-debrief.md` with the session. Record player background, quest or control blockers, reliability attempts, and every facilitator intervention. At final completion, `first-hours-evidence.json` atomically records guidance and comfort choices, wall-clock and active-simulation duration, all quest outcomes, handbook open count and first/last tick by tutorial stage, the reliability trial, and the frozen scorecard. An incomplete session intentionally emits no completion evidence; its save and debrief remain available.
-3. Include both players unfamiliar with systems/programming vocabulary and players with relevant experience. Exercise Guided and Contextual before treating Minimal as an onboarding default candidate.
-4. After **Own the Shift**, open the Shift Scorecard with `K`. Without reopening the journal, ask:
-   - What constrained glass service, and which observed evidence supported that conclusion?
-   - Which unwritten assumptions failed under delegation or automation?
-   - Why were the captured replay and live reliability window stronger evidence than another happy-path run?
-5. Score an answer as causal only when it links an observed state or event to the resulting service outcome. Repeating UI labels or naming the chosen button is not sufficient.
+2. Keep the generated `facilitator-debrief.md` with the session. Record player background, movement/interaction discovery, the first attempted response to each pressure, stalls, ignored feedback, retries, and every intervention with its time and exact help.
+3. At **Own the Shift**, the client atomically writes `first-hours-evidence.json`: anonymous session identity, guidance/comfort choices, wall-clock and active-simulation duration, quest outcomes, handbook visits, reliability trial, and frozen scorecard. An incomplete session intentionally emits no completion evidence; its isolated save and observation still count when assessing progression blockers.
+4. Without reopening the journal or introducing design vocabulary, ask:
+   - What constrained glass service, and which observed evidence supports that conclusion?
+   - What did the panel say was true during the incident, and what was physically true?
+   - Why are the captured replay and live reliability window stronger evidence than another happy-path run?
+   - Would you trust the revised system during another rush? Why?
+5. Let the player use the post-shift **Two Stations** comparison. Before they acknowledge the Codex reflection/reveal, ask: "What part of your solution stayed the same, and what part changed between stations?" Record a pass only if they independently describe a stable decision slot with swappable routing choices in ordinary language. Do not prompt with *Strategy*, *policy*, *interface*, or *pattern*.
+6. Score bottleneck, readiness disagreement, and replay/proof independently. A causal answer links an observed state/event to a service or reliability consequence; repeating a label, selected button, or facilitator wording is insufficient.
+7. After the client closes, record the structured observation. Every critical UI/accessibility issue needs a stable code, concise summary, owner, and either `Fixed` or `Backlog` disposition.
 
-Players may open the in-game Shift Handbook with `F12`; consulting an available control is not facilitator intervention. The evidence export records repeated visits by tutorial stage so they can be compared with observed confusion rather than treated as a failure by themselves. The launcher does not opt into developer tools, and the client keeps those tools locked until the first shift is complete.
+Players may open the Shift Handbook with `F12`; consulting an available control is not facilitator intervention. The launcher does not opt into developer tools, and the client keeps consequence-bypassing tools locked until the shift is complete.
 
-For the first formative gate, run at least five sessions, including at least two players unfamiliar with the intended vocabulary. Do not claim the first few hours ready unless:
+### Fixed formative cohort contract
 
-- at least four of five players complete the arc without a facilitator telling them which consequential action to take;
-- at least four of five provide causal answers to two of the three debrief questions;
-- no common blocker prevents more than one player from advancing;
-- observed wall-clock duration supports the intended first-hours envelope rather than relying on active ticks or the accelerated smoke duration;
-- failures and retries remain explainable from world feedback rather than external instruction.
+Record this contract before collecting evidence so results do not redefine the gate:
 
-Log findings in the nearest authoritative quest, UX, or simulation document and fix common blockers before expanding the sample. The protocol is a gate; an empty checklist is not evidence.
+- minimum five human sessions, including at least two vocabulary novices;
+- at least one Guided and one Contextual session; Minimal is exploratory until those modes are represented;
+- at least 80% complete without action-directed help;
+- at least 80% discover both movement and contextual interaction without coaching;
+- at least 80% causally identify a meaningful bottleneck;
+- at least 80% explain reported-versus-physical readiness after the incident;
+- at least 80% articulate why replay/proof matters;
+- at least 60% express the Strategy shape before naming;
+- no progression blocker appears in more than one session;
+- every critical UI/accessibility issue has a fix or backlog owner;
+- at least 80% of completed first shifts finish in the initial **45–120 wall-clock minute** formative envelope.
 
-The evidence schema is versioned and contains no name or contact field. Use a study-local anonymous `PlayerId`; do not put personal information in the ID or facilitator notes unless the study has an approved reason and handling policy. On client exit, the launcher prompts for the four structured facilitator judgments used by the gate. Run `.\tools\summarize-first-hours-playtests.ps1` to aggregate those observations with objective evidence; it deliberately leaves the wall-clock envelope as `REVIEW` until the study defines a numeric target.
+For cohorts larger than five, the percentage thresholds apply to every recorded human observation rather than a favorable subset. The duration envelope is a formative study target, not a promise of final campaign length; revise it only in a dated decision after reviewing this cohort.
+
+The evidence schemas contain no name or contact field. Use a study-local anonymous `PlayerId`; do not put personal information in IDs or notes. Run `.\tools\summarize-first-hours-playtests.ps1` to validate session/evidence identity and write the durable Markdown report. The gate cannot pass from missing observations, incomplete issue ownership, automated fixtures, or console claims. Log confirmed friction in the nearest authoritative quest, UX, or simulation document before expanding the sample.
