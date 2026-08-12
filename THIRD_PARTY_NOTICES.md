@@ -21,4 +21,4 @@ The repository voluntarily retains attribution and provenance even though CC0 do
 - Included license: [`src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/LICENSE.txt`](src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/LICENSE.txt)
 - Provenance: [`src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/PROVENANCE.md`](src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/PROVENANCE.md)
 
-The source GLB is retained for Stride compilation and the matching projection is embedded for the current room renderer. Attribution is not required, but the project retains it voluntarily.
+The source GLB is retained for native Stride rendering and the matching projection is embedded for the renderer-safe room fallback. Attribution is not required, but the project retains it voluntarily.

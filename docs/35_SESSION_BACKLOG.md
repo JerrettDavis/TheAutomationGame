@@ -798,13 +798,30 @@ N4 Player Tools is complete through process capture/editing, restricted automati
 - ADR-0021 records the concrete outsourcing ontology, fair vendor behavior, fixed-input comparison authority, career migration, and deliberate deferral of a generic procurement/contract system.
 - `dotnet build TheAutomationGame.sln -c Release --no-restore` passed with 0 warnings/errors. `dotnet test TheAutomationGame.sln -c Release --no-build` passed 308/308: Content 65, Domain 33, Simulation 61, Integration 149.
 
-### S034 — Restaurant Art and Audio Polish — TODO
+### S034 — Restaurant Art and Audio Polish — DONE
 
 **Value:** First chapter reaches internal vertical-slice presentation bar.
 
 **Deliver:** complete required production or approved-alpha assets for room/equipment/items/cast/UI/audio/VFX.
 
 **Proof:** no shipping-facing placeholders in first chapter unless explicitly accepted and tracked.
+
+**Delivered:**
+
+- Wrote the presentation acceptance episode before implementation: the same authoritative shift must communicate room purpose, station/item/cast identity, operating state, consequence, and accessible audio without adding simulation truth.
+- Replaced the obsolete placeholder wish list with the restaurant approved-alpha register. Nine concrete surfaces cover room, station family, imported washer, item family, world cast, narrative identities, UI, audio, and VFX; each records source/license, accepted limitation, and replacement trigger.
+- Added the executable `RestaurantAlphaAssetAudit`. It rejects missing categories, duplicate IDs, critical placeholder/fallback-only status, absent provenance/license, undocumented alpha debt, missing audio/VFX equivalents, and incomplete idle/ready/active/complete/blocked/selected/interactable coverage.
+- Polished the native room with work zones, utility trim, lighting, basin/splash guard, drain surface, open dirty/clean racks, service top, and equipment-specific overlays while preserving engine-neutral fixture anchors and the complete SpriteBatch fallback.
+- Added non-color plate/glass/tray silhouettes; deterministic `IDLE`/`READY`/`RUN`/`DONE`/`ATTN` washer presentation; reduced-motion-safe pulses; and six distinct content-ID-resolved cast badges for Avery, Ray, Jules, Tessa, Devon, and Sam.
+- Expanded project-authored audio from seven to nine compiled mono assets with a washer running loop and UI confirmation. Authoritative washer snapshots now reconcile loop start/stop across ordinary completion, reset, mute, and resume; every information-bearing event retains text/state equivalence.
+- Updated the closest asset/audio plan, current-state audit, README, provenance/third-party notice, screenshot gallery, and ADR-0022. No domain, simulation, content schema, command, save, or replay type changed.
+
+**Validation:**
+
+- Focused presentation/audio/room/cast/audit tests passed 21/21. WAV validation checks every accepted source is RIFF PCM, mono, 22,050 Hz, and 16-bit; operational tests prove distinct item silhouettes and washer attention priority.
+- Non-playing Release asset diagnosis passed: `audioAssets=9/9`, `roomModules=161`, `roomKinds=13`, `blockedFixtures=6`, `portsConnected=True`, `detourSteps=4`, `gui=not-started`.
+- Full Release suite passed 316/316: Content 65, Domain 33, Simulation 61, Integration 157.
+- Native Release semantic smoke completed `EpisodeComplete`, passed the 3/3 live reliability window, resumed the level-7 career, and reported `[room=native] [assets=alpha] [audio=ready]`. The inspected [approved-alpha running frame](screenshots/first-shift/restaurant-approved-alpha.png) shows the polished room, equipment silhouettes, player, washer `RUN` state, and visible running-audio caption; the inspected [Devon incident frame](screenshots/first-shift/shift-window-running.png) shows the named-cast badge and critical response without clipping. The [Sam vendor frame](screenshots/first-shift/vendor-comparison.png) also retains a clean badge/header layout.
 
 ### S035 — Restaurant Human Readiness Gate — TODO
 

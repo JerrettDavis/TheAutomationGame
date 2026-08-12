@@ -349,6 +349,22 @@ The saved master-volume percentage now updates live Stride `SoundInstance` gain;
 
 Every emitted cue carries a visible `SOUND • ...` caption in the gameplay HUD. Detailed command feedback, operational notifications, progression receipts, washer visuals, and failure colors remain present, so audio conveys no unique required information. This first slice is intentionally non-spatialized: emitters, listeners, occlusion, music buses, dialogue, and dynamic mixing wait for concrete later requirements.
 
+## Implemented S034 restaurant approved-alpha pass
+
+The first restaurant chapter now has a concrete shipping decision in `30_INITIAL_ASSET_MANIFEST.md` and an executable `RestaurantAlphaAssetAudit`. Its nine accepted surfaces cover room, equipment, items, world cast, narrative cast, UI, audio, and VFX. The audit fails missing categories, duplicate identity, critical `placeholder`/`fallback-only` status, absent provenance/license, undocumented alpha limitations or replacement triggers, missing accessible equivalents, and incomplete operational-state coverage.
+
+The integrated pass adds:
+
+- five colored work zones, equipment-specific procedural details, utility trim, and three light fixtures to the native modular room;
+- basin/splash-guard, open-shelf rack, drainboard, washer-door, and service-pass silhouettes while retaining authoritative floor anchors;
+- distinct plate-oval, glass-tumbler, and tray-rectangle aggregate marks, tested independently of color;
+- a deterministic washer language for `IDLE`, `READY`, `RUN`, `DONE`, and `ATTN`, with attention taking priority and cyclic motion suppressed in reduced-motion mode;
+- distinct badges for Avery, Ray, Jules, Tessa, Devon, and Sam wherever live authored dialogue or the vendor presentation identifies them;
+- a washer running loop and UI confirmation cue, bringing the deterministic mono set to nine compiled assets; start/complete evidence starts/stops the loop, and the visible washer state remains authoritative;
+- runtime diagnostics `[assets=alpha] [audio=ready]`, a non-playing `--diagnose-assets` path, and a dedicated native smoke frame during a real washer cycle.
+
+All additions remain client presentation. Simulation snapshots and notifications select visual/audio states; presentation never creates domain facts, commands, topology, save fields, or replay identity. The primitive/catalog fallbacks remain deliberately available and tested, but do not count as the reviewed critical-path surface.
+
 ## Camera and LOD budgets
 
 Define budgets after the first real room proof, then test them with production-like assets.

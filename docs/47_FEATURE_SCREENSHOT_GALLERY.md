@@ -4,9 +4,9 @@ This is the reviewer-facing visual index for delivered session features. The PNG
 
 ## Current integrated build
 
-![Completed vendor boundary comparison](screenshots/first-shift/vendor-comparison.png)
+![Restaurant approved-alpha presentation during an authoritative washer cycle](screenshots/first-shift/restaurant-approved-alpha.png)
 
-The retained set was captured on 2026-08-12 from the integrated S001–S033 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, ran the copied and fitted two-station trials, named Strategy, compared managed and observable vendor contracts under the same incident, rendered the representative benchmark, and resumed with all prior evidence plus both vendor trials intact.
+The retained set was captured on 2026-08-12 from the integrated S001–S034 build by `tools/ui-smoke.ps1`. The run reported native room, approved-alpha assets, and ready audio; completed `EpisodeComplete`; passed the 3/3 live reliability window; wrote playtest evidence; exercised every lens; validated placement/undo/reset and save/restore; ran the copied and fitted two-station trials; named Strategy; compared managed and observable vendor contracts under the same incident; rendered the representative benchmark; and resumed with all prior evidence plus both vendor trials intact.
 
 ## Historical delivery mapping
 
@@ -45,6 +45,7 @@ The retained set was captured on 2026-08-12 from the integrated S001–S033 buil
 | S031 | Pattern Knowledge and Codex Foundation | [pre-name Pattern Codex](screenshots/first-shift/pattern-codex.png) | Player-owned encountered/applied records, causal consequences, recognition, and deliberately withheld conventional name |
 | S032 | Name the Pattern | [Strategy Pattern reveal](screenshots/first-shift/strategy-pattern.png) | Evidence-gated conventional name, concrete structure, benefits, costs, and the player's two causal outcomes |
 | S033 | Vendor and Outsourcing Side Arc | [completed vendor comparison](screenshots/first-shift/vendor-comparison.png) | Same boundary mismatch, distinct support/visibility/fallback terms, two viable outcomes, and no universal winner |
+| S034 | Restaurant Art and Audio Polish | [approved-alpha washer cycle](screenshots/first-shift/restaurant-approved-alpha.png) | Native modular room polish, distinct equipment and dish silhouettes, player rig, washer `RUN` state, and accessible running-audio caption |
 
 ## Additional retained review frames
 
@@ -64,6 +65,7 @@ The retained set was captured on 2026-08-12 from the integrated S001–S033 buil
 - [named Strategy page after career resume](screenshots/first-shift/strategy-pattern-resumed.png)
 - [managed vendor incident](screenshots/first-shift/vendor-managed-incident.png)
 - [vendor comparison after career resume](screenshots/first-shift/vendor-comparison-resumed.png)
+- [Devon badge and critical incident response](screenshots/first-shift/shift-window-running.png)
 
 ## Refresh contract
 

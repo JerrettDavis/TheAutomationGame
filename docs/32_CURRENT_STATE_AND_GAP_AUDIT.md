@@ -114,9 +114,9 @@ Needs at minimum:
 
 ## 4. World presentation and camera
 
-### G-WORLD-001: Intended world is 3D; current world is procedural 2D isometric — P0
+### G-WORLD-001: Native 3D room boundary — RESOLVED
 
-This is an acceptable prototype seam, not a product failure. The next step should prove incremental replacement rather than rewriting simulation or content.
+**Resolved by S010/S034.** The default room is a native Stride orthographic scene with modular procedural geometry and an imported washer model. SpriteBatch is retained as a typed complete-room fallback. The next open presentation concern is authored texture/LOD quality, not the renderer boundary.
 
 ### G-WORLD-002: Facility geometry is too fixed — P1
 
@@ -138,9 +138,9 @@ Walls/equipment must not hide relevant workers or interactables without a clear 
 
 ## 5. Assets, animation, VFX, and audio
 
-### G-ASSET-001: Production asset library effectively absent — P0
+### G-ASSET-001: Production asset library remains mostly approved alpha — P1
 
-The current repo should be assumed to have placeholders and a very small imported asset footprint.
+**Partially resolved by S034; now P1.** The first restaurant chapter has a concrete approved-alpha register and no unreviewed critical-path placeholder. Most surfaces remain procedural approved alpha rather than production art, and the replacement triggers in `30_INITIAL_ASSET_MANIFEST.md` define the remaining production work.
 
 Required production categories:
 
@@ -153,9 +153,9 @@ Required production categories:
 - effects;
 - ambience and interaction audio.
 
-### G-ASSET-002: Asset provenance/license manifest must scale — P0
+### G-ASSET-002: Asset provenance/license manifest must scale — PARTIAL/P1
 
-Every imported third-party asset needs source, license, attribution requirement, modification status, and intended shipping status.
+**Resolved for the restaurant chapter by S034.** The accepted-surface register, executable audit, audio provenance, third-party notice, and retained Kenney evidence cover source, license, modification, shipping decision, limitation, and replacement trigger. A future multi-industry library still needs a machine-readable scalable manifest.
 
 ### G-ASSET-003: No deterministic visual-variant system — P1
 
