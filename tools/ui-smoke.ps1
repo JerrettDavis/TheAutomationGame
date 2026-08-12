@@ -412,6 +412,9 @@ try {
     Send-ControlUntilTitle $process "Scrape" "Work has state"
     Send-ControlUntilTitle $process "Rack" "Ready for the machine"
     Send-ControlUntilTitle $process "StartWasher" "Washer started"
+    Wait-ForTitle $process "[room=native] [assets=alpha] [audio=ready]" 5
+    Start-Sleep -Milliseconds 150
+    $restaurantAlphaScreenshot = Save-WindowScreenshot $process $windowBounds "restaurant-approved-alpha"
     Start-Sleep -Milliseconds 2400
     Send-ControlUntilTitle $process "Unload" "Drying area"
     Send-ControlUntilStage $process "DryAndRestock" "EnableDinnerRush"
@@ -570,7 +573,7 @@ try {
     Send-GameControl $process "CameraReset"
     Wait-ForTitle $process "[zoom=1.00] [cam=0,0]" 3
 
-    $screenshots = @($lockedToolsScreenshot, $introWelcomeScreenshot, $introGuidanceScreenshot, $introComfortScreenshot, $shiftHandbookScreenshot, $progressionReceiptScreenshot, $earlyJournalScreenshot, $activeQuestDetailScreenshot, $placementScreenshot, $scalingScreenshot, $shiftReviewScreenshot, $shiftRunningScreenshot, $twoStationScreenshot, $patternCodexScreenshot, $strategyPatternScreenshot, $vendorManagedScreenshot, $vendorComparisonScreenshot)
+    $screenshots = @($lockedToolsScreenshot, $introWelcomeScreenshot, $introGuidanceScreenshot, $introComfortScreenshot, $shiftHandbookScreenshot, $restaurantAlphaScreenshot, $progressionReceiptScreenshot, $earlyJournalScreenshot, $activeQuestDetailScreenshot, $placementScreenshot, $scalingScreenshot, $shiftReviewScreenshot, $shiftRunningScreenshot, $twoStationScreenshot, $patternCodexScreenshot, $strategyPatternScreenshot, $vendorManagedScreenshot, $vendorComparisonScreenshot)
     Start-Sleep -Milliseconds 150
     $screenshots += Save-WindowScreenshot $process $windowBounds "runtime"
     foreach ($lens in @("State", "Knowledge", "Automation", "Runtime", "Responsibility", "Reality", "Process", "State")) {

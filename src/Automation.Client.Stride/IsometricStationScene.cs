@@ -5,6 +5,42 @@ using Stride.Graphics;
 
 namespace Automation.Client.Stride;
 
+public enum RestaurantDishSilhouette
+{
+    PlateOval,
+    GlassTumbler,
+    TrayRectangle,
+}
+
+public enum WasherVisualState
+{
+    Idle,
+    Ready,
+    Active,
+    Complete,
+    Attention,
+}
+
+public readonly record struct WasherStatePresentation(WasherVisualState State, string Label, Color Color);
+
+public static class RestaurantOperationalPresentation
+{
+    public static RestaurantDishSilhouette DishSilhouette(DishKind kind) => kind switch
+    {
+        DishKind.Plate => RestaurantDishSilhouette.PlateOval,
+        DishKind.Glass => RestaurantDishSilhouette.GlassTumbler,
+        DishKind.Tray => RestaurantDishSilhouette.TrayRectangle,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    public static WasherStatePresentation Washer(bool running, bool occupied, int racked, int complete, bool attention) =>
+        attention ? new(WasherVisualState.Attention, "ATTN", Color.OrangeRed) :
+        running ? new(WasherVisualState.Active, "RUN", Color.MediumTurquoise) :
+        complete > 0 ? new(WasherVisualState.Complete, "DONE", Color.LightGreen) :
+        racked > 0 && !occupied ? new(WasherVisualState.Ready, "READY", Color.Goldenrod) :
+        new(WasherVisualState.Idle, "IDLE", new Color(145, 164, 166));
+}
+
 public readonly record struct IsometricCamera(float OffsetX, float OffsetY, float Zoom)
 {
     public const float MinimumOffsetX = -220;
@@ -257,16 +293,13 @@ internal static class IsometricStationScene
 
         if (index == 2)
         {
-            var complete = snapshot.At(DishState.WashedInMachine).Total > 0;
-            var attention = snapshot.Automation.Halted || snapshot.Incidents.Active.Count > 0;
-            var ready = snapshot.At(DishState.Racked).Total > 0 && !snapshot.WasherOccupied;
-            var state = attention ? "ATTN" : snapshot.WasherRunning ? "RUN" : complete ? "DONE" : ready ? "READY" : "IDLE";
-            var stateColor = attention ? Color.OrangeRed : snapshot.WasherRunning ? Color.MediumTurquoise :
-                complete ? Color.LightGreen : ready ? Color.Goldenrod : new Color(145, 164, 166);
+            var state = RestaurantOperationalPresentation.Washer(snapshot.WasherRunning, snapshot.WasherOccupied,
+                snapshot.At(DishState.Racked).Total, snapshot.At(DishState.WashedInMachine).Total,
+                snapshot.Automation.Halted || snapshot.Incidents.Active.Count > 0);
             var pulse = snapshot.WasherRunning && !reducedMotion ? interactionPulse * 0.45f : 0;
             DrawDiamond(batch, diamond, point.X + width * 0.34f, point.Y - bodyHeight - (9 + pulse) * scale,
-                (11 + pulse) * scale, (7 + pulse * 0.5f) * scale, stateColor);
-            PixelFont.Draw(batch, pixel, state, point.X - 21 * scale, point.Y - bodyHeight - 35 * scale, 1, stateColor, 10);
+                (11 + pulse) * scale, (7 + pulse * 0.5f) * scale, state.Color);
+            PixelFont.Draw(batch, pixel, state.Label, point.X - 21 * scale, point.Y - bodyHeight - 35 * scale, 1, state.Color, 10);
         }
 
         var counts = snapshot.At(station.QueueState);
@@ -386,13 +419,13 @@ internal static class IsometricStationScene
             {
                 var itemX = x + offset * 7 * scale;
                 var itemY = y - offset * 3 * scale;
-                switch (kind)
+                switch (RestaurantOperationalPresentation.DishSilhouette(kind))
                 {
-                    case DishKind.Glass:
+                    case RestaurantDishSilhouette.GlassTumbler:
                         DrawRect(batch, pixel, itemX - 4 * scale, itemY - 11 * scale, 8 * scale, 11 * scale, item.PrimaryColor);
                         DrawRect(batch, pixel, itemX - 2 * scale, itemY - 9 * scale, 4 * scale, 7 * scale, new Color(20, 35, 40));
                         break;
-                    case DishKind.Tray:
+                    case RestaurantDishSilhouette.TrayRectangle:
                         DrawRect(batch, pixel, itemX - 11 * scale, itemY - 6 * scale, 22 * scale, 9 * scale, item.SecondaryColor);
                         DrawRect(batch, pixel, itemX - 8 * scale, itemY - 4 * scale, 16 * scale, 5 * scale, item.PrimaryColor);
                         break;
