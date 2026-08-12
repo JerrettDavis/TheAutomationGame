@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Automation.Content\Automation.Content.csproj" />
     <ProjectReference Include="..\Automation.Domain\Automation.Domain.csproj" />
+    <ProjectReference Include="..\Automation.Persistence\Automation.Persistence.csproj" />
     <ProjectReference Include="..\Automation.Simulation\Automation.Simulation.csproj" />
     <ProjectReference Include="..\Automation.Tools\Automation.Tools.csproj" />
   </ItemGroup>

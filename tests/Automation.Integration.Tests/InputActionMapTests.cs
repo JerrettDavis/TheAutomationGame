@@ -27,6 +27,8 @@ public sealed class InputActionMapTests
         Assert.True(profile.Matches(GameInputAction.AutomationEditorToggle, KeyboardKey.Digit6));
         Assert.True(profile.Matches(GameInputAction.TwoStationRoutingToggle, KeyboardKey.Digit7));
         Assert.Equal(InputActionContext.TwoStationRouting, InputActionCatalog.ContextOf(GameInputAction.TwoStationRoutingRunTrial));
+        Assert.True(profile.Matches(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8));
+        Assert.Equal(InputActionContext.PatternCodex, InputActionCatalog.ContextOf(GameInputAction.PatternCodexClose));
         Assert.Equal(InputActionContext.AutomationEditor, InputActionCatalog.ContextOf(GameInputAction.AutomationEditorToggleValue));
         Assert.Equal(InputActionContext.Gameplay, InputActionCatalog.ContextOf(GameInputAction.ProcessCaptureToggle));
         Assert.Equal("C / HOME", profile.DisplayName(GameInputAction.CameraReset));
@@ -133,6 +135,23 @@ public sealed class InputActionMapTests
         Assert.True(migrated.Matches(GameInputAction.TwoStationRoutingToggle, KeyboardKey.Digit7));
         Assert.True(migrated.Matches(GameInputAction.TwoStationRoutingCopy, KeyboardKey.C));
         Assert.True(migrated.Matches(GameInputAction.TwoStationRoutingRunTrial, KeyboardKey.Enter));
+    }
+
+    [Fact]
+    public void SchemaFiveProfileAddsCodexControlsAndKeepsExistingRemaps()
+    {
+        var legacy = InputBindingProfile.Default
+            .WithBinding(GameInputAction.Interact, KeyboardKey.Space)
+            .Bindings
+            .Where(binding => InputActionCatalog.ContextOf(binding.Action) != InputActionContext.PatternCodex &&
+                              binding.Action != GameInputAction.PatternCodexToggle)
+            .ToArray();
+
+        var migrated = new InputBindingProfile(5, legacy);
+
+        Assert.True(migrated.Matches(GameInputAction.Interact, KeyboardKey.Space));
+        Assert.True(migrated.Matches(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8));
+        Assert.True(migrated.Matches(GameInputAction.PatternCodexClose, KeyboardKey.Escape));
     }
 
     [Fact]

@@ -4,7 +4,7 @@
 
 ## Development status
 
-This is a pre-alpha vertical slice under active development. The deterministic headless simulation, Windows Stride greybox, first-shift onboarding and quest arc, initial progression, save/resume, and automated validation paths are runnable; production art, distribution packaging, and human readiness validation are not complete.
+This is a pre-alpha vertical slice under active development. The deterministic headless simulation, Windows Stride greybox, first-shift onboarding and quest arc, initial progression, evidence-backed pattern Codex, save/resume, and automated validation paths are runnable; production art, distribution packaging, and human readiness validation are not complete.
 
 Reviewer-facing captures of the delivered first-shift features are retained in the [feature screenshot gallery](docs/47_FEATURE_SCREENSHOT_GALLERY.md).
 
@@ -174,6 +174,7 @@ dotnet run --project src/Automation.Headless -c Release -- --sandbox-demo --tick
 dotnet run --project src/Automation.Headless -c Release -- --automation-ir-demo
 dotnet run --project src/Automation.Headless -c Release -- --automation-editor-demo
 dotnet run --project src/Automation.Headless -c Release -- --automation-compare-demo
+dotnet run --project src/Automation.Headless -c Release -- --pattern-knowledge-demo
 dotnet run --project src/Automation.Headless -c Release -- --compile-content content/fixtures/schema-v1/minimal-restaurant.yaml
 dotnet run --project src/Automation.Headless -c Release -- --compile-content content/restaurant/first-shift.yaml
 dotnet run --project src/Automation.Headless -c Release -- --expand-template content/templates/proofs/seeded-scenario.template.yaml --named-seed proof-0 --parameter facility-slug=proof-house --parameter rack-capacity=12
@@ -220,6 +221,7 @@ Keyboard defaults are defined by a versioned, engine-neutral action-binding prof
 - `U` documents the uncommon-tray handling knowledge when that exception is discovered;
 - `6` opens the paused Automation Rule Editor. Use `Up` / `Down` to select enabled state, rack/readiness conditions, or the closed Start Washer action; `Space` changes an editable value, `Enter` validates/applies, and `Esc` discards. `B` saves the applied rule as baseline, `V` saves it as variant, and `R` runs both under the same controlled seed/scenario. The panel shows metric deltas plus authoritative inputs, predicates, selected effect, and command outcome;
 - after the first shift, `7` opens **Two Stations, One Problem**. `Left` / `Right` selects main or patio in the same routing decision slot, `Up` / `Down` changes that station's policy, `C` copies main to patio, `Enter` runs both stations under the same authored horizon, and `Esc` closes. The board shows authoritative completion, shortage, and net consequences and reveals the discovery only after both demands are supplied;
+- after the copied and fitted routing trials establish recognition, `8` opens the Pattern Codex. Its pre-name page cites the player's two restaurant records and their consequences; `Esc` closes it. The conventional name remains withheld until the later reflection beat;
 - `I` inspects an automation incident and `P` replays the captured incident against the currently applied player rule;
 - scenario-driving trace and reliability-window actions remain available to explicit developer-session controls and have no production WASD binding;
 - `V` cycles the currently unlocked reality, process, state, knowledge, automation, runtime, and responsibility lenses;

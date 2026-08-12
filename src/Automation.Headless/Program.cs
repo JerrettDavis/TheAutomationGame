@@ -1,5 +1,6 @@
 using Automation.Content;
 using Automation.Domain;
+using Automation.Persistence;
 using Automation.Simulation;
 using Automation.Tools;
 
@@ -243,6 +244,34 @@ if (args.Contains("--two-station-demo", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--pattern-knowledge-demo", StringComparer.OrdinalIgnoreCase))
+{
+    var seedIndex = Array.FindIndex(args, argument => string.Equals(argument, "--seed", StringComparison.OrdinalIgnoreCase));
+    var seed = seedIndex >= 0 && seedIndex + 1 < args.Length && int.TryParse(args[seedIndex + 1], out var parsedSeed)
+        ? parsedSeed
+        : 42;
+    var routing = new TwoStationRoutingWorld(seed, DishStationTwoStationsContent.Configuration);
+    var profile = PatternKnowledgeProfile.Empty;
+    routing.ExecuteNow(new CopyRoutingStationPolicyCommand(routing.Tick,
+        DishRoutingStationId.MainDishRoom, DishRoutingStationId.PatioServiceStation));
+    routing.ExecuteNow(new RunTwoStationRoutingTrialCommand(routing.Tick));
+    profile = RestaurantPatternEvidenceRecognizer.Recognize(profile, routing.Snapshot(), DishStationPatternContent.Strategy);
+    routing.ExecuteNow(new SetRoutingStationPolicyCommand(routing.Tick,
+        DishRoutingStationId.PatioServiceStation, ProcessRoutingPolicy.PlatesFirst));
+    routing.ExecuteNow(new RunTwoStationRoutingTrialCommand(routing.Tick));
+    profile = RestaurantPatternEvidenceRecognizer.Recognize(profile, routing.Snapshot(), DishStationPatternContent.Strategy);
+    var knowledge = profile.For(DishStationPatternContent.Strategy.PatternId);
+    Console.WriteLine($"pattern-codex id={knowledge.Pattern} title={DishStationPatternContent.Strategy.PreNameTitle} nameStatus={(knowledge.Has(PatternKnowledgeMilestone.Named) ? "named" : "not-recorded")} evidence={knowledge.Evidence.Length} milestones={string.Join(',', knowledge.Milestones)}");
+    foreach (var evidence in knowledge.Evidence)
+        Console.WriteLine($"  evidence={evidence.Id} milestone={evidence.Milestone} place={evidence.Place} consequence={evidence.Consequence} replay={evidence.ReplayReference}");
+    var restored = AutomationCareerSaveStore.Deserialize(AutomationCareerSaveStore.Serialize(new(
+        new DishStationWorld(seed, DishStationFirstHoursContent.ScenarioConfiguration), routing, profile)),
+        seed, DishStationTwoStationsContent.Configuration);
+    var restoredKnowledge = restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
+    Console.WriteLine($"pattern-codex outcome recognized={restoredKnowledge.Has(PatternKnowledgeMilestone.Recognized)} named={restoredKnowledge.Has(PatternKnowledgeMilestone.Named)} persistedEvidence={restoredKnowledge.Evidence.Length} replayTrials={restored.TwoStationRouting.Snapshot().Trials.Count}");
+    return;
+}
+
 var options = HeadlessOptions.Parse(args, DishStationFirstHoursContent.ScenarioConfiguration);
 if (options.ShowHelp)
 {
@@ -438,6 +467,7 @@ internal sealed record HeadlessOptions(
           --automation-compare-demo     compare baseline/variant rules in identical authoritative trials
           --economy-compare-demo        compare staffed linear/flow-cell choices over the same 120-tick shift
           --two-station-demo            copy, refit, and compare routing policies across two restaurant stations
+          --pattern-knowledge-demo      recognize, persist, and print the pre-name restaurant Codex evidence
           --named-seed NAME             required by templates with declared variable fields
           --parameter NAME=VALUE        supply a template parameter; repeat for additional parameters
           --initial-plates N            initial dirty plates

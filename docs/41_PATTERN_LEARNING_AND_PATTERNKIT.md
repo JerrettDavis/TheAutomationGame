@@ -118,6 +118,12 @@ PatternKnowledge
 
 The simulation does not need to understand "Strategy Pattern." Pattern knowledge belongs to progression/content interpretation.
 
+### Current S031 boundary
+
+The first implemented pattern record is deliberately pre-name. Schema-v1 authors a hidden `PatternDefinition` for the reusable restaurant routing choice, its problem signature, qualifying evidence count, and primary discovery quest. `RestaurantPatternEvidenceRecognizer` interprets only authoritative two-station replay outcomes: the copied-policy shortage records `Encountered`, and the demand-fitted zero-shortage trial records `Applied`; together they conclude `Recognized`. The recognizer is idempotent and cannot conclude `Named`.
+
+The career save owns the immutable evidence journal and milestone citations. The client Codex is only a projection of that profile: it uses the authored pre-name title, prints the player's own problem/move/consequence records, and explicitly says that the conventional name is not recorded. S032 owns the reflection and naming transition. No quiz gate, client-side inference, or throughput bonus is attached to recognition.
+
 ## Multiple entry points
 
 A pattern may be discovered through:

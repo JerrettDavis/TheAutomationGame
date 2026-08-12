@@ -35,6 +35,7 @@ public sealed class ProcessEditorPresenterTests
     [InlineData(false, ClientScreen.Gameplay, ClientModal.ProcessEditor, false)]
     [InlineData(false, ClientScreen.Gameplay, ClientModal.AutomationEditor, false)]
     [InlineData(false, ClientScreen.Gameplay, ClientModal.TwoStationRouting, false)]
+    [InlineData(false, ClientScreen.Gameplay, ClientModal.PatternCodex, false)]
     [InlineData(true, ClientScreen.Gameplay, ClientModal.None, false)]
     [InlineData(false, ClientScreen.Briefing, ClientModal.None, false)]
     public void SimulationPausePolicyTreatsEditorAsPaused(

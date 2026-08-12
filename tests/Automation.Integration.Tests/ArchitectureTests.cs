@@ -21,6 +21,7 @@ public sealed class ArchitectureTests
         typeof(SimulationTick).Assembly,
         typeof(DishStationWorld).Assembly,
         typeof(DishStationEpisodeDefinition).Assembly,
+        typeof(AutomationCareerSaveStore).Assembly,
         typeof(SyntheticWorkBenchmark).Assembly,
     };
 

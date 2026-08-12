@@ -19,6 +19,7 @@ public enum InputActionContext
     ProcessEditor = 1 << 9,
     AutomationEditor = 1 << 10,
     TwoStationRouting = 1 << 11,
+    PatternCodex = 1 << 12,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -96,6 +97,8 @@ public enum GameInputAction
     TwoStationRoutingCopy,
     TwoStationRoutingRunTrial,
     TwoStationRoutingClose,
+    PatternCodexToggle,
+    PatternCodexClose,
     TogglePlacement,
     PlacementPrevious,
     PlacementNext,
@@ -135,7 +138,7 @@ public enum GameInputAction
 public enum KeyboardKey
 {
     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7,
+    Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8,
     Left, Right, Up, Down,
     Enter, Space, Escape, Tab, Backspace, Home,
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
@@ -145,7 +148,7 @@ public readonly record struct KeyboardBinding(GameInputAction Action, KeyboardKe
 
 public sealed class InputBindingProfile
 {
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
     private readonly KeyboardKey[][] keysByAction;
     private readonly string[] displayNames;
     private readonly string[] primaryDisplayNames;
@@ -209,6 +212,8 @@ public sealed class InputBindingProfile
         new(GameInputAction.TwoStationRoutingCopy, KeyboardKey.C),
         new(GameInputAction.TwoStationRoutingRunTrial, KeyboardKey.Enter),
         new(GameInputAction.TwoStationRoutingClose, KeyboardKey.Escape),
+        new(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8),
+        new(GameInputAction.PatternCodexClose, KeyboardKey.Escape),
         new(GameInputAction.TogglePlacement, KeyboardKey.M),
         new(GameInputAction.PlacementPrevious, KeyboardKey.Q), new(GameInputAction.PlacementNext, KeyboardKey.E),
         new(GameInputAction.PlacementLeft, KeyboardKey.Left), new(GameInputAction.PlacementRight, KeyboardKey.Right),
@@ -236,7 +241,7 @@ public sealed class InputBindingProfile
     [JsonConstructor]
     public InputBindingProfile(int schemaVersion, KeyboardBinding[] bindings)
     {
-        if (schemaVersion is not (2 or 3 or 4 or CurrentSchemaVersion))
+        if (schemaVersion is not (2 or 3 or 4 or 5 or CurrentSchemaVersion))
             throw new ArgumentOutOfRangeException(nameof(schemaVersion), $"Unsupported input binding schema {schemaVersion}.");
         ArgumentNullException.ThrowIfNull(bindings);
         SchemaVersion = CurrentSchemaVersion;
@@ -251,6 +256,11 @@ public sealed class InputBindingProfile
             new(GameInputAction.TwoStationRoutingRunTrial, KeyboardKey.Enter),
             new(GameInputAction.TwoStationRoutingClose, KeyboardKey.Escape),
         };
+        var codexAdditions = new KeyboardBinding[]
+        {
+            new(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8),
+            new(GameInputAction.PatternCodexClose, KeyboardKey.Escape),
+        };
         var additions = schemaVersion switch
         {
             2 => new KeyboardBinding[]
@@ -264,15 +274,17 @@ public sealed class InputBindingProfile
                 new(GameInputAction.AutomationEditorSaveBaseline, KeyboardKey.B),
                 new(GameInputAction.AutomationEditorSaveVariant, KeyboardKey.V),
                 new(GameInputAction.AutomationEditorRunComparison, KeyboardKey.R),
-            }.Concat(twoStationAdditions).ToArray(),
+            }.Concat(twoStationAdditions).Concat(codexAdditions).ToArray(),
             3 =>
             [
                 new(GameInputAction.AutomationEditorSaveBaseline, KeyboardKey.B),
                 new(GameInputAction.AutomationEditorSaveVariant, KeyboardKey.V),
                 new(GameInputAction.AutomationEditorRunComparison, KeyboardKey.R),
                 .. twoStationAdditions,
+                .. codexAdditions,
             ],
-            4 => twoStationAdditions,
+            4 => twoStationAdditions.Concat(codexAdditions).ToArray(),
+            5 => codexAdditions,
             _ => [],
         };
         var missingAdditions = additions.Where(addition =>
@@ -331,7 +343,7 @@ public sealed class InputBindingProfile
     private static string DisplayName(KeyboardKey key) => key switch
     {
         KeyboardKey.Digit1 => "1", KeyboardKey.Digit2 => "2", KeyboardKey.Digit3 => "3",
-        KeyboardKey.Digit4 => "4", KeyboardKey.Digit5 => "5", KeyboardKey.Digit6 => "6", KeyboardKey.Digit7 => "7", KeyboardKey.Backspace => "BACKSPACE",
+        KeyboardKey.Digit4 => "4", KeyboardKey.Digit5 => "5", KeyboardKey.Digit6 => "6", KeyboardKey.Digit7 => "7", KeyboardKey.Digit8 => "8", KeyboardKey.Backspace => "BACKSPACE",
         _ => key.ToString().ToUpperInvariant(),
     };
 }
@@ -364,6 +376,8 @@ public static class InputActionCatalog
             GameInputAction.TwoStationRoutingCopy or GameInputAction.TwoStationRoutingRunTrial or
             GameInputAction.TwoStationRoutingClose => InputActionContext.TwoStationRouting,
         GameInputAction.TwoStationRoutingToggle => InputActionContext.Gameplay,
+        GameInputAction.PatternCodexClose => InputActionContext.PatternCodex,
+        GameInputAction.PatternCodexToggle => InputActionContext.Gameplay,
         GameInputAction.PlacementPrevious or GameInputAction.PlacementNext or GameInputAction.PlacementLeft or GameInputAction.PlacementRight or
             GameInputAction.PlacementUp or GameInputAction.PlacementDown or GameInputAction.PlacementConfirm or GameInputAction.PlacementUndo or
             GameInputAction.PlacementReset => InputActionContext.Placement,

@@ -139,6 +139,7 @@ public sealed class DishStationGame : Game
     private bool ProcessEditorVisible => screenRouter.Modal == ClientModal.ProcessEditor;
     private bool AutomationEditorVisible => screenRouter.Modal == ClientModal.AutomationEditor;
     private bool TwoStationRoutingVisible => screenRouter.Modal == ClientModal.TwoStationRouting;
+    private bool PatternCodexVisible => screenRouter.Modal == ClientModal.PatternCodex;
 
     public DishStationGame(
         bool fullscreenPresentation = false,
@@ -328,6 +329,14 @@ public sealed class DishStationGame : Game
             return;
         }
 
+        if (PatternCodexVisible)
+        {
+            if (Pressed(GameInputAction.PatternCodexClose)) HandleControl(ClientControl.PatternCodexClose);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
         if (careerSaveEnabled && world.IntroComplete)
         {
             autosaveAccumulator += gameTime.Elapsed.TotalSeconds;
@@ -384,6 +393,7 @@ public sealed class DishStationGame : Game
         if (!placementMode && Pressed(GameInputAction.ProcessEditorToggle)) HandleControl(ClientControl.ToggleProcessEditor);
         if (!placementMode && Pressed(GameInputAction.AutomationEditorToggle)) HandleControl(ClientControl.ToggleAutomationEditor);
         if (!placementMode && Pressed(GameInputAction.TwoStationRoutingToggle)) HandleControl(ClientControl.ToggleTwoStationRouting);
+        if (!placementMode && Pressed(GameInputAction.PatternCodexToggle)) HandleControl(ClientControl.TogglePatternCodex);
         if (Pressed(GameInputAction.DeveloperToggle)) HandleControl(ClientControl.ToggleGodMode);
         if (Pressed(GameInputAction.DeveloperAddDirty)) HandleControl(ClientControl.GodAddDirty);
         if (Pressed(GameInputAction.DeveloperSetCleanSupply)) HandleControl(ClientControl.GodSetCleanSupply);
@@ -702,6 +712,11 @@ public sealed class DishStationGame : Game
                 screenRouter.ToggleTwoStationRouting();
                 UpdateWindowTitle();
                 break;
+            case ClientControl.TogglePatternCodex: TogglePatternCodex(); break;
+            case ClientControl.PatternCodexClose:
+                if (PatternCodexVisible) screenRouter.TogglePatternCodex();
+                UpdateWindowTitle();
+                break;
             case ClientControl.ToggleGodMode:
                 if (!DeveloperToolsAvailable)
                 {
@@ -966,6 +981,26 @@ public sealed class DishStationGame : Game
         }
         UpdateWindowTitle();
         return result.Success;
+    }
+
+    private void TogglePatternCodex()
+    {
+        if (PatternCodexVisible)
+        {
+            screenRouter.TogglePatternCodex();
+            UpdateWindowTitle();
+            return;
+        }
+        var knowledge = patternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
+        if (!knowledge.Has(PatternKnowledgeMilestone.Recognized))
+        {
+            commandFeedback = "Codex needs evidence from both copied and fitted two-station trials.";
+            UpdateWindowTitle();
+            return;
+        }
+        screenRouter.TogglePatternCodex();
+        commandFeedback = "Codex opened to your restaurant evidence.";
+        UpdateWindowTitle();
     }
 
     private void ToggleSelectedAutomationRuleValue()
@@ -1782,6 +1817,7 @@ public sealed class DishStationGame : Game
             else if (ProcessEditorVisible) DrawProcessEditor(snapshot.ProcessCapture);
             else if (AutomationEditorVisible) DrawAutomationRuleEditor(snapshot.Automation);
             else if (TwoStationRoutingVisible) DrawTwoStationRouting();
+            else if (PatternCodexVisible) DrawPatternCodex();
             else if (QuestJournalVisible)
             {
                 if (QuestDetailVisible) DrawQuestDetail(snapshot.Progression);
@@ -1844,7 +1880,10 @@ public sealed class DishStationGame : Game
         else
         {
             PixelFont.Draw(spriteBatch!, pixel!, "FIRST SHIFT ARC COMPLETE", 27, 88, 1, Color.LightGreen);
-            PixelFont.Draw(spriteBatch!, pixel!, $"PRESS {Binding(GameInputAction.TwoStationRoutingToggle)} FOR TWO STATIONS, OR {Binding(GameInputAction.ShiftReportToggle)} FOR THE SHIFT REPORT.", 27, 107, 1, Color.White, 100);
+            var codexHint = patternKnowledge.For(DishStationPatternContent.Strategy.PatternId).Has(PatternKnowledgeMilestone.Recognized)
+                ? $" OR {Binding(GameInputAction.PatternCodexToggle)} FOR CODEX"
+                : "";
+            PixelFont.Draw(spriteBatch!, pixel!, $"PRESS {Binding(GameInputAction.TwoStationRoutingToggle)} FOR TWO STATIONS, {Binding(GameInputAction.ShiftReportToggle)} FOR REPORT{codexHint}.", 27, 107, 1, Color.White, 100);
         }
 
         var processHint = snapshot.ProcessCapture.Active is { } activeCapture
@@ -1987,6 +2026,35 @@ public sealed class DishStationGame : Game
         PixelFont.Draw(spriteBatch!, pixel!,
             $"{Binding(GameInputAction.TwoStationRoutingRunTrial)} RUN BOTH STATIONS   {Binding(GameInputAction.TwoStationRoutingClose)} CLOSE",
             78, 495, 1, Color.LightGray, 122);
+        if (view.OutcomeMet)
+            PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.PatternCodexToggle)} OPEN CODEX RECORD", 680, 495, 1, Color.LightGreen, 40);
+    }
+
+    private void DrawPatternCodex()
+    {
+        var knowledge = patternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
+        var view = PatternCodexPresenter.Present(DishStationPatternContent.Strategy, knowledge);
+        DrawPanel(48, 48, 928, 504, new Color(14, 29, 39, 252), Color.MediumPurple);
+        PixelFont.Draw(spriteBatch!, pixel!, "PATTERN CODEX  •  LIVED", 72, 67, 1, Color.MediumPurple);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Title, 72, 94, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Status, 72, 128, 1, Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, view.NameStatus, 632, 128, 1, Color.Goldenrod, 42);
+        PixelFont.Draw(spriteBatch!, pixel!, view.EvidenceSummary, 72, 151, 1, Color.LightGray, 125);
+        var y = 184f;
+        foreach (var evidence in view.Evidence)
+        {
+            var accent = evidence.Milestone == "APPLIED" ? Color.LightGreen : Color.CornflowerBlue;
+            DrawPanel(72, y, 880, 132, new Color(24, 43, 54, 245), accent);
+            PixelFont.Draw(spriteBatch!, pixel!, evidence.Milestone, 92, y + 15, 2, accent);
+            PixelFont.Draw(spriteBatch!, pixel!, evidence.Place, 252, y + 18, 1, Color.White, 88);
+            PixelFont.Draw(spriteBatch!, pixel!, $"PROBLEM      {evidence.Problem}", 92, y + 51, 1, Color.LightGray, 116);
+            PixelFont.Draw(spriteBatch!, pixel!, $"YOUR MOVE    {evidence.Solution}", 92, y + 75, 1, Color.White, 116);
+            PixelFont.Draw(spriteBatch!, pixel!, $"CONSEQUENCE  {evidence.Consequence}", 92, y + 99, 1, Color.Goldenrod, 116);
+            y += 142;
+        }
+        PixelFont.Draw(spriteBatch!, pixel!, "THIS PAGE STARTS WITH WHAT YOU DID. THE CONVENTIONAL NAME COMES AFTER REFLECTION.",
+            72, 486, 1, Color.LightGray, 125);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.PatternCodexClose)} CLOSE", 824, 520, 1, Color.LightGray, 18);
     }
 
     private void DrawPlacementTools(DishStationSnapshot snapshot)
@@ -2762,7 +2830,8 @@ public sealed class DishStationGame : Game
             : "none";
         var routing = twoStationWorld.Snapshot();
         var routingProfile = DishStationTwoStationsContent.Configuration.Stations[selectedRoutingStation];
-        Window.Title = $"The Automation Game — [room={roomPresentationStatus}] [screen={screenRouter.Screen}] [modal={screenRouter.Modal}] [menu={menu}] [save={saveStatus}] [settings={settingsStatus}] [window={clientSettings.WindowMode}] [volume={clientSettings.MasterVolumePercent}] [ui={clientSettings.UiScalePercent}] [cameraSensitivity={clientSettings.CameraSensitivityPercent}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={QuestJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={QuestDetailVisible}] [report={ShiftReportVisible}] [help={HelpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [canvas={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] [routingStation={routingProfile.Id}] [routingPolicy={routing.PolicyFor(routingProfile.Id)}] [routingTrials={routing.Trials.Count}] [routingShortages={routing.LatestTrial?.TotalShortages.ToString() ?? "none"}] {note}";
+        var codexKnowledge = patternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
+        Window.Title = $"The Automation Game — [room={roomPresentationStatus}] [screen={screenRouter.Screen}] [modal={screenRouter.Modal}] [menu={menu}] [save={saveStatus}] [settings={settingsStatus}] [window={clientSettings.WindowMode}] [volume={clientSettings.MasterVolumePercent}] [ui={clientSettings.UiScalePercent}] [cameraSensitivity={clientSettings.CameraSensitivityPercent}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={QuestJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={QuestDetailVisible}] [report={ShiftReportVisible}] [help={HelpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [canvas={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] [routingStation={routingProfile.Id}] [routingPolicy={routing.PolicyFor(routingProfile.Id)}] [routingTrials={routing.Trials.Count}] [routingShortages={routing.LatestTrial?.TotalShortages.ToString() ?? "none"}] [codex={(codexKnowledge.Has(PatternKnowledgeMilestone.Named) ? "named" : codexKnowledge.Has(PatternKnowledgeMilestone.Recognized) ? "recognized" : "locked")}:{codexKnowledge.Evidence.Length}] {note}";
     }
 
     private readonly record struct WorkstationPresentation(
@@ -2849,6 +2918,8 @@ internal enum ClientControl
     TwoStationRoutingCopy,
     TwoStationRoutingRunTrial,
     TwoStationRoutingClose,
+    TogglePatternCodex,
+    PatternCodexClose,
     ToggleGodMode,
     GodAddDirty,
     GodSetCleanSupply,

@@ -19,6 +19,7 @@ public enum ClientModal
     ProcessEditor,
     AutomationEditor,
     TwoStationRouting,
+    PatternCodex,
 }
 
 public sealed class ClientScreenRouter
@@ -123,6 +124,13 @@ public sealed class ClientScreenRouter
         if (!IsGameplay()) return false;
         Modal = Modal == ClientModal.TwoStationRouting ? ClientModal.None : ClientModal.TwoStationRouting;
         return Modal == ClientModal.TwoStationRouting;
+    }
+
+    public bool TogglePatternCodex()
+    {
+        if (!IsGameplay()) return false;
+        Modal = Modal == ClientModal.PatternCodex ? ClientModal.None : ClientModal.PatternCodex;
+        return Modal == ClientModal.PatternCodex;
     }
 
     private bool IsGameplay() => Screen == ClientScreen.Gameplay;

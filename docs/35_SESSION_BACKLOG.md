@@ -738,13 +738,25 @@ N4 Player Tools is complete through process capture/editing, restricted automati
 - ADR-0018 records the concrete two-station boundary, command/replay authority, per-action trial cost, deferred generic abstraction, and current career-save exclusion.
 - `dotnet build TheAutomationGame.sln -c Release --no-restore` passed with 0 warnings/errors. `dotnet test TheAutomationGame.sln -c Release --no-build` passed 273/273: Content 61, Domain 28, Simulation 57, Integration 127. Production content compiled to 21 definitions with SHA-256 `33d12d1f5612c3140d6e5bcf76ec6e6fc01ca4182efe0abf413dc972e2e0df64`.
 
-### S031 — Pattern Knowledge and Codex Foundation — TODO
+### S031 — Pattern Knowledge and Codex Foundation — DONE
 
 **Value:** Game records a reusable concept from lived play.
 
 **Deliver:** PatternDefinition/Knowledge/Evidence minimal model + Codex shell.
 
 **Proof:** Strategy page shows player's own restaurant evidence.
+
+**Evidence (2026-08-12):**
+
+- Added engine-neutral semantic IDs, problem signatures, immutable evidence, evidence-cited lifecycle milestones, per-pattern knowledge, and a career profile. Validation rejects malformed IDs, duplicate records/milestones, direct synthetic recognition, and missing citations; the model has no Stride dependency.
+- Schema-v1 now validates pattern definitions and references. Production content authors a hidden restaurant routing concept with the pre-name title **Reusable Routing Choice**, a two-evidence threshold, required application, and the S030 primary quest. The conventional catalog ID is not player-facing before naming.
+- A concrete persistence-layer recognizer translates the authoritative S030 replay into two stable records: the copied-policy patio shortage establishes `Encountered`; the fitted zero-shortage result establishes `Applied`; together they conclude `Recognized`. Re-running it is idempotent and it never concludes `Named`.
+- The versioned career envelope atomically persists the first-shift replay, two-station replay, and pattern profile. It upgrades legacy first-shift JSON, validates semantic IDs and journal uniqueness, and restores the complete evidence history on Continue.
+- Added the paused `8` Pattern Codex. It unlocks only after recognition and projects the authored pre-name title plus the player's own problem, move, and consequence records. Both [the initial recognized page](screenshots/first-shift/pattern-codex.png) and [the resumed-career page](screenshots/first-shift/pattern-codex-resumed.png) were visually inspected; each explicitly withholds the conventional name.
+- Native Release semantic smoke passed the complete S001–S031 journey and resumed with `routingTrials=2`, `routingShortages=0`, and `codex=recognized:2`. The deterministic `--pattern-knowledge-demo` ran byte-identically with SHA-256 `07676ed9cef38a5bdc33d6778650d8ff7be18184ef604a9f915dcfe06730495f` and reported recognized `true`, named `false`, two persisted evidence records, and two replay trials.
+- ADR-0019 records evidence ownership, the concrete recognition boundary, career-envelope migration, pre-name presentation, and the deliberate deferral of generic recognition rules and naming.
+- Production content compiled to 22 definitions with SHA-256 `0caeb0b816375a197d23078f158b3c3c1166aea4e8e07636e02dafb2a1fd5a99`.
+- `dotnet build TheAutomationGame.sln -c Release --no-restore` passed with 0 warnings/errors. `dotnet test TheAutomationGame.sln -c Release --no-build` passed 288/288: Content 63, Domain 31, Simulation 57, Integration 137.
 
 ### S032 — Name the Pattern — TODO
 

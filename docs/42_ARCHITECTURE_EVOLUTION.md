@@ -268,6 +268,8 @@ S029 adds one bounded first-shift economy projection rather than a general ledge
 
 S030 adds a separate, bounded two-station routing episode after the first shift. Content authors exactly the main dish room and patio service station, their local dish demand, initial inventory, initial routing choice, and a shared trial horizon. `TwoStationRoutingWorld` authoritatively owns policy selection, copy actions, deterministic trials, metrics, and replay; each explicit trial runs two validated `DishStationWorld` instances and reports their real shortage/economy consequences. The Stride board pauses the first-shift projection while open and sends only set/copy/run commands. This is intentionally not a generic policy registry, experiment framework, career-save extension, or named Strategy concept; those abstractions wait for S031/S032 evidence and another recurring use.
 
+S031 adds engine-neutral, immutable pattern knowledge without teaching the simulation conventional design-pattern names. Content authors the hidden catalog identity, pre-name title, problem signature, evidence threshold, and primary quest. A persistence-layer recognizer translates authoritative S030 replay outcomes into stable evidence and evidence-cited `Encountered`, `Applied`, and `Recognized` milestones; it is idempotent and cannot name the concept. A versioned career envelope persists both replay journals and the knowledge profile, with legacy first-shift-save upgrade. The Stride Codex pauses gameplay and projects only the saved evidence, keeping the conventional name hidden for S032.
+
 ## Save evolution
 
 Before campaign alpha, saves should include:

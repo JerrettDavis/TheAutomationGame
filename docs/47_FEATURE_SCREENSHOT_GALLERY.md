@@ -4,9 +4,9 @@ This is the reviewer-facing visual index for delivered session features. The PNG
 
 ## Current integrated build
 
-![Two stations with fitted routing policies](screenshots/first-shift/two-stations.png)
+![Evidence-backed pre-name Pattern Codex](screenshots/first-shift/pattern-codex.png)
 
-The retained set was captured on 2026-08-12 from the integrated S001–S030 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, ran the copied and fitted two-station trials, rendered the representative benchmark, and resumed the saved level-7 career.
+The retained set was captured on 2026-08-12 from the integrated S001–S031 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, ran the copied and fitted two-station trials, recognized their reusable shape, rendered the representative benchmark, and resumed the saved level-7 career with both evidence records intact.
 
 ## Historical delivery mapping
 
@@ -42,6 +42,7 @@ The retained set was captured on 2026-08-12 from the integrated S001–S030 buil
 | S028 | First-Shift Narrative Pass | [completed quest detail](screenshots/first-shift/quest-complete-detail.png) | Coherent authored chapter outcome and discovery record |
 | S029 | Lightweight Shift Economy | [shift report](screenshots/first-shift/shift-report.png) | Frozen value, labor, staffing, rework, shortage, incident, investment, total-cost, and net scorecard |
 | S030 | Two Stations, One Problem | [two-station routing board](screenshots/first-shift/two-stations.png) | Same routing decision slot at both stations, demand-fitted policies, zero-shortage outcome, and authored discovery |
+| S031 | Pattern Knowledge and Codex Foundation | [pre-name Pattern Codex](screenshots/first-shift/pattern-codex.png) | Player-owned encountered/applied records, causal consequences, recognition, and deliberately withheld conventional name |
 
 ## Additional retained review frames
 
@@ -57,6 +58,7 @@ The retained set was captured on 2026-08-12 from the integrated S001–S030 buil
 - [career continue](screenshots/first-shift/career-continue.png)
 - [new-career confirmation](screenshots/first-shift/career-new-confirm.png)
 - [career resumed](screenshots/first-shift/career-resumed.png)
+- [Pattern Codex after career resume](screenshots/first-shift/pattern-codex-resumed.png)
 
 ## Refresh contract
 
