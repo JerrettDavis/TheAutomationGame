@@ -11,7 +11,7 @@ public sealed record AutomationCareerSave(
     TwoStationRoutingReplaySave TwoStationRouting,
     PatternKnowledgeProfile PatternKnowledge)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 }
 
 public sealed record AutomationCareerState(
@@ -48,14 +48,16 @@ public static class AutomationCareerSaveStore
 
         var save = JsonSerializer.Deserialize<AutomationCareerSave>(json, Options)
             ?? throw new InvalidDataException("The career save did not contain a checkpoint.");
-        if (save.SchemaVersion != AutomationCareerSave.CurrentSchemaVersion)
+        if (save.SchemaVersion is not (1 or AutomationCareerSave.CurrentSchemaVersion))
             throw new NotSupportedException($"Career save schema {save.SchemaVersion} is not supported.");
         if (save.FirstShift is null || save.TwoStationRouting is null || save.PatternKnowledge is null)
             throw new InvalidDataException("The career save is incomplete.");
-        if (save.PatternKnowledge.Patterns.Select(item => item.Pattern).Distinct().Count() != save.PatternKnowledge.Patterns.Length)
-            throw new InvalidDataException("The career save contains duplicate pattern journals.");
+        var patternKnowledge = save.SchemaVersion == 1
+            ? MigrateSchemaOnePatternKnowledge(save.PatternKnowledge)
+            : save.PatternKnowledge;
+        patternKnowledge.Validate();
         return new(DishStationWorld.Restore(save.FirstShift), TwoStationRoutingWorld.Restore(save.TwoStationRouting),
-            save.PatternKnowledge);
+            patternKnowledge);
     }
 
     public static void SaveFileAtomic(string path, AutomationCareerState state)
@@ -88,7 +90,34 @@ public static class AutomationCareerSaveStore
         AutomationCareerSave.CurrentSchemaVersion,
         state.FirstShift.CreateReplaySave(),
         state.TwoStationRouting.CreateReplaySave(),
-        state.PatternKnowledge);
+        state.PatternKnowledge.Validate());
+
+    private static PatternKnowledgeProfile MigrateSchemaOnePatternKnowledge(PatternKnowledgeProfile profile)
+    {
+        var migrated = PatternKnowledgeProfile.Empty;
+        foreach (var original in profile.Patterns)
+        {
+            var knowledge = original with
+            {
+                Conclusions = original.Conclusions.IsDefault ? [] : original.Conclusions,
+            };
+            foreach (var milestone in new[]
+                     {
+                         PatternKnowledgeMilestone.Recognized,
+                         PatternKnowledgeMilestone.Named,
+                         PatternKnowledgeMilestone.Mastered,
+                     })
+            {
+                if (!knowledge.Has(milestone) || knowledge.Conclusions.Any(item => item.Milestone == milestone)) continue;
+                var basis = knowledge.Evidence.LastOrDefault(item => item.Milestone == PatternKnowledgeMilestone.Applied)?.Id
+                            ?? knowledge.Evidence.LastOrDefault()?.Id
+                            ?? throw new InvalidDataException($"Legacy {milestone} pattern knowledge has no evidence basis.");
+                knowledge = knowledge.Conclude(milestone, basis);
+            }
+            migrated = migrated.Put(knowledge.Validate());
+        }
+        return migrated.Validate();
+    }
 
     private sealed class PatternIdJsonConverter : JsonConverter<PatternId>
     {

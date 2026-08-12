@@ -4,7 +4,7 @@ namespace Automation.Content.Tests;
 
 public sealed class ContentCompilerV1Tests
 {
-    private const string ExpectedHash = "1b4fc95b391a03b5641acd2f1e6cd81ea3c1f9422b79b761d13dd7f6018725d3";
+    private const string ExpectedHash = "47083818e7da2e1f6b1708112fd43f5afa5879549a2f1f5bcb81a7e312651e86";
 
     [Fact]
     public void MinimalRestaurantFixtureCompilesAllV1KindsToDeterministicImmutableCatalog()

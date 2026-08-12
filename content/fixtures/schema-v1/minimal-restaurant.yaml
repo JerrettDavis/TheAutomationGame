@@ -87,6 +87,15 @@ patterns:
     category: behavioral
     external_catalog_id: strategy
     pre_name_title: REUSABLE POLICY CHOICE
+    naming:
+      conventional_name: STRATEGY
+      display_title: STRATEGY PATTERN
+      reflection_prompt: THE SAME DECISION SLOT ACCEPTED DIFFERENT POLICIES.
+      reflection_acknowledgement: RECORD THE SHAPE I USED
+      intent: SELECT AN INTERCHANGEABLE POLICY FOR THE CURRENT CONTEXT.
+      structure: [A CONTEXT OWNS A POLICY SLOT., INTERCHANGEABLE POLICIES FILL THE SLOT.]
+      benefits: [THE POLICY CAN CHANGE WITHOUT REBUILDING ITS CONTEXT.]
+      costs: [EACH POLICY AND SELECTION RULE MUST BE VALIDATED.]
     problem_signatures: [interchangeable-policy]
     recognition:
       minimum_evidence: 2

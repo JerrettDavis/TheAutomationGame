@@ -6,7 +6,7 @@ namespace Automation.Content.Tests;
 public sealed class PatternKnowledgeContentTests
 {
     [Fact]
-    public void ProductionPatternOverlayKeepsTheNameHiddenUntilTheNextBeat()
+    public void ProductionPatternOverlayKeepsTheNameHiddenUntilEvidenceAndAuthorsTheReveal()
     {
         var definition = DishStationPatternContent.Strategy;
 
@@ -14,6 +14,14 @@ public sealed class PatternKnowledgeContentTests
         Assert.Equal("strategy", definition.ExternalCatalogId);
         Assert.Equal("REUSABLE ROUTING CHOICE", definition.PreNameTitle);
         Assert.DoesNotContain(definition.ExternalCatalogId, definition.PreNameTitle, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("STRATEGY", definition.Naming.ConventionalName);
+        Assert.Equal("STRATEGY PATTERN", definition.Naming.DisplayTitle);
+        Assert.Equal(3, definition.Naming.Structure.Length);
+        Assert.Equal(2, definition.Naming.Benefits.Length);
+        Assert.Equal(2, definition.Naming.Costs.Length);
+        Assert.All(definition.Naming.Structure, Assert.NotEmpty);
+        Assert.All(definition.Naming.Benefits, Assert.NotEmpty);
+        Assert.All(definition.Naming.Costs, Assert.NotEmpty);
         Assert.Equal(2, definition.MinimumEvidence);
         Assert.True(definition.RequiresApplication);
         Assert.Equal([PatternProblemSignature.InterchangeablePolicy], definition.ProblemSignatures.ToArray());
@@ -32,6 +40,14 @@ public sealed class PatternKnowledgeContentTests
             "quest.restaurant.missing]", StringComparison.Ordinal);
         error = Assert.Throws<ContentCompilationException>(() => ContentCompilerV1.Compile(missingQuest));
         Assert.Contains(error.Diagnostics, diagnostic => diagnostic.Path.Contains("primary_encounters", StringComparison.Ordinal));
+
+        var missingTradeoff = ProductionYaml().Replace(
+            "      costs:\r\n        - EVERY ADDED POLICY NEEDS A CLEAR SELECTION RULE AND ITS OWN VALIDATION.\r\n        - COPYING A POLICY WITHOUT ITS CONTEXT CAN PRODUCE A PLAUSIBLE BUT WRONG RESULT.",
+            "      costs: []", StringComparison.Ordinal).Replace(
+            "      costs:\n        - EVERY ADDED POLICY NEEDS A CLEAR SELECTION RULE AND ITS OWN VALIDATION.\n        - COPYING A POLICY WITHOUT ITS CONTEXT CAN PRODUCE A PLAUSIBLE BUT WRONG RESULT.",
+            "      costs: []", StringComparison.Ordinal);
+        error = Assert.Throws<ContentCompilationException>(() => ContentCompilerV1.Compile(missingTradeoff));
+        Assert.Contains(error.Diagnostics, diagnostic => diagnostic.Path.Contains("naming.costs", StringComparison.Ordinal));
     }
 
     private static string ProductionYaml() => File.ReadAllText(Path.Combine(RepositoryRoot(), "content", "restaurant", "first-shift.yaml"));

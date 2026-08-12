@@ -187,6 +187,7 @@ public sealed record PatternContentDefinition(
     string Category,
     string ExternalCatalogId,
     string PreNameTitle,
+    PatternNamingContentDefinition Naming,
     ImmutableArray<PatternProblemSignature> ProblemSignatures,
     int MinimumEvidence,
     bool RequiresApplication,
@@ -194,6 +195,16 @@ public sealed record PatternContentDefinition(
 {
     public PatternId PatternId => new(Id.Value);
 }
+
+public sealed record PatternNamingContentDefinition(
+    string ConventionalName,
+    string DisplayTitle,
+    string ReflectionPrompt,
+    string ReflectionAcknowledgement,
+    string Intent,
+    ImmutableArray<string> Structure,
+    ImmutableArray<string> Benefits,
+    ImmutableArray<string> Costs);
 
 public static class DishStationIncidentContentAdapter
 {

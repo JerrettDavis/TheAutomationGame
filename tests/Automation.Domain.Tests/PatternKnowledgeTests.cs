@@ -24,6 +24,14 @@ public sealed class PatternKnowledgeTests
         var recognized = knowledge.Conclude(PatternKnowledgeMilestone.Recognized, applied.Id);
         Assert.True(recognized.Has(PatternKnowledgeMilestone.Recognized));
         Assert.Equal(2, recognized.Evidence.Length);
+        Assert.Equal(new(PatternKnowledgeMilestone.Recognized, applied.Id), Assert.Single(recognized.Conclusions));
+
+        Assert.Throws<InvalidOperationException>(() => knowledge.Conclude(PatternKnowledgeMilestone.Named, applied.Id));
+        var named = recognized.Conclude(PatternKnowledgeMilestone.Named, applied.Id)
+            .Conclude(PatternKnowledgeMilestone.Named, encountered.Id);
+        Assert.True(named.Has(PatternKnowledgeMilestone.Named));
+        Assert.Equal(2, named.Conclusions.Length);
+        Assert.Equal(applied.Id, named.Conclusions.Single(item => item.Milestone == PatternKnowledgeMilestone.Named).Basis);
     }
 
     [Fact]

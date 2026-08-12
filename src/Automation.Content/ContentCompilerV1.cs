@@ -123,7 +123,10 @@ public static partial class ContentCompilerV1
             Id(item.Presentation), Id(item.PresentationFallback))).OrderBy(item => item.Id.Value).ToImmutableArray();
         var incidents = raw.Incidents.Select(CompileIncident).OrderBy(item => item.Id.Value).ToImmutableArray();
         var patterns = raw.Patterns.Select(item => new PatternContentDefinition(Id(item.Id), item.Catalog!, item.Category!,
-            item.ExternalCatalogId!, item.PreNameTitle!, item.ProblemSignatures!.Select(PatternProblemSignatureFromToken).ToImmutableArray(),
+            item.ExternalCatalogId!, item.PreNameTitle!, new(item.Naming!.ConventionalName!, item.Naming.DisplayTitle!,
+                item.Naming.ReflectionPrompt!, item.Naming.ReflectionAcknowledgement!, item.Naming.Intent!,
+                item.Naming.Structure.ToImmutableArray(), item.Naming.Benefits.ToImmutableArray(), item.Naming.Costs.ToImmutableArray()),
+            item.ProblemSignatures!.Select(PatternProblemSignatureFromToken).ToImmutableArray(),
             item.Recognition!.MinimumEvidence!.Value, item.Recognition.RequiresApplication,
             Ids(item.PrimaryEncounters))).OrderBy(item => item.Id.Value).ToImmutableArray();
 
@@ -436,6 +439,22 @@ public static partial class ContentCompilerV1
             Require(item.PreNameTitle, "pre_name_title", "Pre-name Codex title is required.");
             if (item.PreNameTitle?.Contains(item.ExternalCatalogId ?? "\0", StringComparison.OrdinalIgnoreCase) == true)
                 Add("pre_name_title", "Pre-name title must not reveal the external catalog ID.");
+            if (item.Naming is null) Add("naming", "Naming reveal content is required.");
+            else
+            {
+                Require(item.Naming.ConventionalName, "naming.conventional_name", "Conventional pattern name is required.");
+                if (item.Naming.ConventionalName?.Contains(item.ExternalCatalogId ?? "\0", StringComparison.OrdinalIgnoreCase) != true)
+                    Add("naming.conventional_name", "Conventional name must identify the external catalog entry.");
+                Require(item.Naming.DisplayTitle, "naming.display_title", "Named Codex title is required.");
+                if (item.Naming.DisplayTitle?.Contains(item.Naming.ConventionalName ?? "\0", StringComparison.OrdinalIgnoreCase) != true)
+                    Add("naming.display_title", "Named Codex title must contain the conventional name.");
+                Require(item.Naming.ReflectionPrompt, "naming.reflection_prompt", "Reflection prompt is required.");
+                Require(item.Naming.ReflectionAcknowledgement, "naming.reflection_acknowledgement", "Reflection acknowledgement is required.");
+                Require(item.Naming.Intent, "naming.intent", "Pattern intent is required.");
+                RequireTextList(item.Naming.Structure, "naming.structure");
+                RequireTextList(item.Naming.Benefits, "naming.benefits");
+                RequireTextList(item.Naming.Costs, "naming.costs");
+            }
             if (item.ProblemSignatures is null || item.ProblemSignatures.Count == 0)
                 Add("problem_signatures", "At least one problem signature is required.");
             else
@@ -472,6 +491,13 @@ public static partial class ContentCompilerV1
 
         void Add(string path, string message) => diagnostics.Add(new(source, $"{activePath}.{path}", message));
         void Require(string? value, string path, string message) { if (string.IsNullOrWhiteSpace(value)) Add(path, message); }
+        void RequireTextList(IReadOnlyList<string>? values, string path)
+        {
+            if (values is null || values.Count == 0) { Add(path, "At least one player-facing statement is required."); return; }
+            for (var index = 0; index < values.Count; index++)
+                Require(values[index], $"{path}[{index}]", "Player-facing statement must be nonempty.");
+            if (values.Distinct(StringComparer.Ordinal).Count() != values.Count) Add(path, "Player-facing statements must be unique.");
+        }
         void RequireState(string? value, string path) { if (!StatePattern().IsMatch(value ?? "")) Add(path, "State must use lowercase semantic-token syntax."); }
         void RequirePositive(int? value, string path) { if (value is null or <= 0) Add(path, "Value must be a positive integer."); }
         void RequireNonNegative(int? value, string path) { if (value is null or < 0) Add(path, "Value must be a non-negative integer."); }
@@ -739,7 +765,10 @@ public static partial class ContentCompilerV1
         foreach (var item in incidents)
             text.AppendLine($"incident|{item.Id}|{item.Industry}|{Encode(item.DisplayName)}|{item.TriggerAt.Value}|{item.Scope}|{Encode(item.Observable)}|{Encode(item.Evidence)}|{Encode(item.Recovery)}|{IncidentEffect(item.Effect)}");
         foreach (var item in patterns)
+        {
             text.AppendLine($"pattern|{item.Id}|{item.Catalog}|{item.Category}|{item.ExternalCatalogId}|{Encode(item.PreNameTitle)}|{string.Join(',', item.ProblemSignatures)}|{item.MinimumEvidence}|{item.RequiresApplication}|{Join(item.PrimaryEncounters)}");
+            text.AppendLine($"pattern-naming|{item.Id}|{Encode(item.Naming.ConventionalName)}|{Encode(item.Naming.DisplayTitle)}|{Encode(item.Naming.ReflectionPrompt)}|{Encode(item.Naming.ReflectionAcknowledgement)}|{Encode(item.Naming.Intent)}|{string.Join(',', item.Naming.Structure.Select(Encode))}|{string.Join(',', item.Naming.Benefits.Select(Encode))}|{string.Join(',', item.Naming.Costs.Select(Encode))}");
+        }
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())));
     }
 
@@ -1154,9 +1183,21 @@ public static partial class ContentCompilerV1
         public string? Category { get; set; }
         public string? ExternalCatalogId { get; set; }
         public string? PreNameTitle { get; set; }
+        public RawPatternNaming? Naming { get; set; }
         public List<string> ProblemSignatures { get; set; } = [];
         public RawPatternRecognition? Recognition { get; set; }
         public List<string> PrimaryEncounters { get; set; } = [];
+    }
+    private sealed class RawPatternNaming
+    {
+        public string? ConventionalName { get; set; }
+        public string? DisplayTitle { get; set; }
+        public string? ReflectionPrompt { get; set; }
+        public string? ReflectionAcknowledgement { get; set; }
+        public string? Intent { get; set; }
+        public List<string> Structure { get; set; } = [];
+        public List<string> Benefits { get; set; } = [];
+        public List<string> Costs { get; set; } = [];
     }
     private sealed class RawPatternRecognition
     {

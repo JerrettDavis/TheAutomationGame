@@ -272,6 +272,35 @@ if (args.Contains("--pattern-knowledge-demo", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--pattern-naming-demo", StringComparer.OrdinalIgnoreCase))
+{
+    var routing = new TwoStationRoutingWorld(42, DishStationTwoStationsContent.Configuration);
+    routing.ExecuteNow(new CopyRoutingStationPolicyCommand(routing.Tick,
+        DishRoutingStationId.MainDishRoom, DishRoutingStationId.PatioServiceStation));
+    routing.ExecuteNow(new RunTwoStationRoutingTrialCommand(routing.Tick));
+    routing.ExecuteNow(new SetRoutingStationPolicyCommand(routing.Tick,
+        DishRoutingStationId.PatioServiceStation, ProcessRoutingPolicy.PlatesFirst));
+    routing.ExecuteNow(new RunTwoStationRoutingTrialCommand(routing.Tick));
+    var recognized = RestaurantPatternEvidenceRecognizer.Recognize(PatternKnowledgeProfile.Empty,
+        routing.Snapshot(), DishStationPatternContent.Strategy);
+    var before = recognized.For(DishStationPatternContent.Strategy.PatternId);
+    Console.WriteLine($"pattern-reveal start recognized={before.Has(PatternKnowledgeMilestone.Recognized)} named={before.Has(PatternKnowledgeMilestone.Named)} evidence={before.Evidence.Length}");
+    Console.WriteLine($"reflection={DishStationPatternContent.Strategy.Naming.ReflectionPrompt}");
+    var named = PatternNamingService.RecordReflection(recognized, DishStationPatternContent.Strategy);
+    var restored = AutomationCareerSaveStore.Deserialize(AutomationCareerSaveStore.Serialize(new(
+        new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, named)),
+        42, DishStationTwoStationsContent.Configuration);
+    var knowledge = restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
+    var naming = DishStationPatternContent.Strategy.Naming;
+    Console.WriteLine($"pattern-reveal name={naming.DisplayTitle} category={DishStationPatternContent.Strategy.Category.ToUpperInvariant()} intent={naming.Intent}");
+    foreach (var item in naming.Structure) Console.WriteLine($"  structure={item}");
+    foreach (var item in naming.Benefits) Console.WriteLine($"  benefit={item}");
+    foreach (var item in naming.Costs) Console.WriteLine($"  cost={item}");
+    var conclusion = knowledge.Conclusions.Single(item => item.Milestone == PatternKnowledgeMilestone.Named);
+    Console.WriteLine($"pattern-reveal outcome recognized={knowledge.Has(PatternKnowledgeMilestone.Recognized)} named={knowledge.Has(PatternKnowledgeMilestone.Named)} basis={conclusion.Basis} persistedEvidence={knowledge.Evidence.Length} replayTrials={restored.TwoStationRouting.Snapshot().Trials.Count}");
+    return;
+}
+
 var options = HeadlessOptions.Parse(args, DishStationFirstHoursContent.ScenarioConfiguration);
 if (options.ShowHelp)
 {
@@ -468,6 +497,7 @@ internal sealed record HeadlessOptions(
           --economy-compare-demo        compare staffed linear/flow-cell choices over the same 120-tick shift
           --two-station-demo            copy, refit, and compare routing policies across two restaurant stations
           --pattern-knowledge-demo      recognize, persist, and print the pre-name restaurant Codex evidence
+          --pattern-naming-demo         reflect, name Strategy, and print its structure/tradeoffs after resume
           --named-seed NAME             required by templates with declared variable fields
           --parameter NAME=VALUE        supply a template parameter; repeat for additional parameters
           --initial-plates N            initial dirty plates

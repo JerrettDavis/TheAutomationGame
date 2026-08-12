@@ -38,7 +38,7 @@ Role and presentation references use `role.` and `presentation.` respectively; t
 - `scenarios`: `id`, `industry`, `facility`, nonempty `processes`, `items`, `characters`, and named deterministic `seed`. A scenario may carry the optional complete `narrative` block, a dish-station scenario may carry the complete `dish_station` runtime block, and the concrete S030 restaurant episode may carry `two_station_routing` as described below.
 - `quests`: `id`, `scenario`, nonempty unique character `participants`, outcome-oriented `objective`, and one numeric `completion` condition. A quest may also carry the complete optional `narrative` block described below.
 - `incidents`: `id`, `industry`, `display_name`, nonnegative `trigger_at_tick`, `scope`, immediate `observable`, discoverable `evidence`, `recovery`, and exactly one typed effect block.
-- `patterns`: `id`, closed `catalog` and `category`, hidden `external_catalog_id`, player-safe `pre_name_title`, nonempty unique `problem_signatures`, a recognition rule, and nonempty primary quest encounters.
+- `patterns`: `id`, closed `catalog` and `category`, hidden `external_catalog_id`, player-safe `pre_name_title`, authored naming/reflection/structure/tradeoff copy, nonempty unique `problem_signatures`, a recognition rule, and nonempty primary quest encounters.
 
 Supported v1 completion metrics are `service.available.count`, `service.shortage.count`, and `process.completed.count`. Operators are `equal`, `greater_than_or_equal`, and `less_than`.
 
@@ -185,6 +185,20 @@ patterns:
     category: behavioral
     external_catalog_id: strategy
     pre_name_title: REUSABLE ROUTING CHOICE
+    naming:
+      conventional_name: STRATEGY
+      display_title: STRATEGY PATTERN
+      reflection_prompt: BOTH STATIONS USED THE SAME ROUTING DECISION SLOT. THE CHOICE INSIDE IT CHANGED WITH LOCAL DEMAND.
+      reflection_acknowledgement: RECORD THE SHAPE I USED
+      intent: LET ONE OPERATING CONTEXT SELECT FROM INTERCHANGEABLE POLICIES WITHOUT CHANGING THE WORKFLOW THAT USES THEM.
+      structure:
+        - CONTEXT — EACH STATION OWNS THE ROUTING DECISION SLOT.
+        - STRATEGY — GLASS-FIRST, PLATES-FIRST, OR BALANCED FILLS THAT SLOT.
+        - SELECTION — LOCAL SERVICE DEMAND DETERMINES WHICH POLICY FITS.
+      benefits:
+        - A POLICY CAN CHANGE WITHOUT REBUILDING THE STATION WORKFLOW.
+      costs:
+        - EVERY ADDED POLICY NEEDS A CLEAR SELECTION RULE AND ITS OWN VALIDATION.
     problem_signatures: [interchangeable-policy]
     recognition:
       minimum_evidence: 2
@@ -192,7 +206,7 @@ patterns:
     primary_encounters: [quest.restaurant.two-stations.one-problem]
 ```
 
-The initial closed catalog/category sets are `gof` and `behavioral`/`creational`/`structural`; S031 recognizes only `interchangeable-policy`. `minimum_evidence` is positive. Primary encounters must resolve to quests. The pre-name title cannot contain the external catalog ID, preventing content from exposing conventional vocabulary before the evidence-backed naming beat. `PatternEvidence` and `PatternKnowledge` are player-history values interpreted from authoritative outcomes outside Simulation; the overlay itself does not award XP or complete a quiz.
+The initial closed catalog/category sets are `gof` and `behavioral`/`creational`/`structural`; S031 recognizes only `interchangeable-policy`. `minimum_evidence` is positive. Primary encounters must resolve to quests. The pre-name title cannot contain the external catalog ID, preventing content from exposing conventional vocabulary before the evidence-backed naming beat. The S032 `naming` block requires a conventional name, named display title, reflection prompt and acknowledgement, intent, and nonempty unique structure/benefit/cost statements. The display title must contain the conventional name; this is reveal copy, not a question with a correct answer. `PatternEvidence` and `PatternKnowledge` are player-history values interpreted from authoritative outcomes outside Simulation; the overlay itself does not award XP or complete a quiz.
 
 ## Incident definitions
 

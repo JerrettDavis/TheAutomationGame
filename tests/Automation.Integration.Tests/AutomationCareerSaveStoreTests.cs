@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Automation.Content;
 using Automation.Domain;
 using Automation.Persistence;
@@ -26,6 +27,49 @@ public sealed class AutomationCareerSaveStoreTests
         Assert.Equal(Json(profile), Json(restored.PatternKnowledge));
         Assert.True(restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId)
             .Has(PatternKnowledgeMilestone.Recognized));
+        Assert.Single(restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId).Conclusions);
+    }
+
+    [Fact]
+    public void SchemaOneCareerMigratesRecognitionToACitedConclusion()
+    {
+        var routing = CompletedRouting();
+        var profile = RestaurantPatternEvidenceRecognizer.Recognize(PatternKnowledgeProfile.Empty,
+            routing.Snapshot(), DishStationPatternContent.Strategy);
+        var root = JsonNode.Parse(AutomationCareerSaveStore.Serialize(new(
+            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, profile)))!.AsObject();
+        root["schemaVersion"] = 1;
+        foreach (var pattern in root["patternKnowledge"]!["patterns"]!.AsArray())
+            pattern!.AsObject().Remove("conclusions");
+
+        var restored = AutomationCareerSaveStore.Deserialize(root.ToJsonString(), 42,
+            DishStationTwoStationsContent.Configuration);
+        var knowledge = restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
+
+        Assert.True(knowledge.Has(PatternKnowledgeMilestone.Recognized));
+        var conclusion = Assert.Single(knowledge.Conclusions);
+        Assert.Equal(PatternKnowledgeMilestone.Recognized, conclusion.Milestone);
+        Assert.Contains(knowledge.Evidence, evidence => evidence.Id == conclusion.Basis);
+        Assert.Contains("\"schemaVersion\": 2", AutomationCareerSaveStore.Serialize(restored), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NamedPatternAndItsEvidenceBasisSurviveCareerResume()
+    {
+        var routing = CompletedRouting();
+        var recognized = RestaurantPatternEvidenceRecognizer.Recognize(PatternKnowledgeProfile.Empty,
+            routing.Snapshot(), DishStationPatternContent.Strategy);
+        var named = PatternNamingService.RecordReflection(recognized, DishStationPatternContent.Strategy);
+
+        var restored = AutomationCareerSaveStore.Deserialize(AutomationCareerSaveStore.Serialize(new(
+            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, named)),
+            42, DishStationTwoStationsContent.Configuration);
+        var knowledge = restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
+
+        Assert.True(knowledge.Has(PatternKnowledgeMilestone.Named));
+        Assert.Equal(2, knowledge.Conclusions.Length);
+        Assert.All(knowledge.Conclusions, conclusion =>
+            Assert.Contains(knowledge.Evidence, evidence => evidence.Id == conclusion.Basis));
     }
 
     [Fact]
