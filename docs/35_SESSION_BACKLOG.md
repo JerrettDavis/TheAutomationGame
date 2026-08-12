@@ -778,13 +778,25 @@ N4 Player Tools is complete through process capture/editing, restricted automati
 - ADR-0020 records the evidence-gated application boundary, authored reveal content, conclusion migration, and deliberate absence of quiz or simulation-side naming.
 - `dotnet build TheAutomationGame.sln -c Release --no-restore` passed with 0 warnings/errors. `dotnet test TheAutomationGame.sln -c Release --no-build` passed 294/294: Content 63, Domain 31, Simulation 57, Integration 143.
 
-### S033 — Vendor and Outsourcing Side Arc — TODO
+### S033 — Vendor and Outsourcing Side Arc — DONE
 
 **Value:** Player learns that automation can transfer work and risk rather than erase it.
 
 **Deliver:** vendor pitch, SLA/contract choices, integration boundary, failure/support incident, make/buy comparison.
 
 **Proof:** at least two choices are viable and produce distinct operational risks.
+
+**Evidence (2026-08-12):**
+
+- Wrote the episode first: Strategy-named starting state, Sam's pitch, three viable proposals, one shared rare-tray boundary mismatch, explicit normal/incident outcomes, distinct retained-ownership risks, and comparison rather than a scored correct answer.
+- Added engine-neutral proposal IDs, sourcing/boundary/knowledge ownership, SLA, visibility, fallback, and cost terms plus a concrete `VendorOutsourcingConfiguration`. The three closed bundles are in-house, managed vendor, and observable vendor adapter; invalid cross-bundle terms fail validation.
+- Authored Sam Rivera, `scenario.restaurant.buy-the-box`, `quest.restaurant.buy-the-box`, and all three contracts in schema-v1. Production content now compiles to 25 definitions with SHA-256 `5132ef78fcfecd13d110da5c9c4e423b4ae3a55f70547108ca06697593514c49`.
+- `VendorOutsourcingWorld` accepts explicit select/run commands and replays exactly. Each proposal receives eight service requests and the `exception`→`special` mismatch at tick 3. In-house is positive-net with one miss and team-owned diagnosis; managed vendor has the best normal net but four misses and vendor-only initial diagnosis; observable vendor pays more, uses two manual fallbacks, misses zero, and shares the trace. All three remain positive-net.
+- Repeated normalized `--vendor-demo` output was byte-identical with SHA-256 `5ba56b341d611fd0c26349a165994d15dff40ade45604463cb0f463cbc38f95b`, reporting three viable proposals and three distinct risk profiles.
+- Career schema 3 persists the vendor command journal and reconstructs both trials/traces; schema-2 and raw first-shift saves migrate to an empty optional side arc.
+- Added the paused `9` **Buy the Box** board. It shows Sam's authored pitch, each proposal's source/boundary/SLA/trace/fallback/knowledge/cost/risk, and the selected authoritative incident trace. Native Release semantic smoke ran managed and observable proposals, resumed at `vendor=ObservableVendor:2:2`, and retained the visually inspected [managed incident](screenshots/first-shift/vendor-managed-incident.png), [completed comparison](screenshots/first-shift/vendor-comparison.png), and [resumed comparison](screenshots/first-shift/vendor-comparison-resumed.png).
+- ADR-0021 records the concrete outsourcing ontology, fair vendor behavior, fixed-input comparison authority, career migration, and deliberate deferral of a generic procurement/contract system.
+- `dotnet build TheAutomationGame.sln -c Release --no-restore` passed with 0 warnings/errors. `dotnet test TheAutomationGame.sln -c Release --no-build` passed 308/308: Content 65, Domain 33, Simulation 61, Integration 149.
 
 ### S034 — Restaurant Art and Audio Polish — TODO
 

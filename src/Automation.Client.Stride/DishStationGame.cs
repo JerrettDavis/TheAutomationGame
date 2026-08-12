@@ -141,6 +141,7 @@ public sealed class DishStationGame : Game
     private bool AutomationEditorVisible => screenRouter.Modal == ClientModal.AutomationEditor;
     private bool TwoStationRoutingVisible => screenRouter.Modal == ClientModal.TwoStationRouting;
     private bool PatternCodexVisible => screenRouter.Modal == ClientModal.PatternCodex;
+    private bool VendorComparisonVisible => screenRouter.Modal == ClientModal.VendorComparison;
 
     public DishStationGame(
         bool fullscreenPresentation = false,
@@ -339,6 +340,17 @@ public sealed class DishStationGame : Game
             return;
         }
 
+        if (VendorComparisonVisible)
+        {
+            if (Pressed(GameInputAction.VendorComparisonPrevious)) HandleControl(ClientControl.VendorComparisonPrevious);
+            if (Pressed(GameInputAction.VendorComparisonNext)) HandleControl(ClientControl.VendorComparisonNext);
+            if (Pressed(GameInputAction.VendorComparisonRunTrial)) HandleControl(ClientControl.VendorComparisonRunTrial);
+            if (Pressed(GameInputAction.VendorComparisonClose)) HandleControl(ClientControl.VendorComparisonClose);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
         if (careerSaveEnabled && world.IntroComplete)
         {
             autosaveAccumulator += gameTime.Elapsed.TotalSeconds;
@@ -396,6 +408,7 @@ public sealed class DishStationGame : Game
         if (!placementMode && Pressed(GameInputAction.AutomationEditorToggle)) HandleControl(ClientControl.ToggleAutomationEditor);
         if (!placementMode && Pressed(GameInputAction.TwoStationRoutingToggle)) HandleControl(ClientControl.ToggleTwoStationRouting);
         if (!placementMode && Pressed(GameInputAction.PatternCodexToggle)) HandleControl(ClientControl.TogglePatternCodex);
+        if (!placementMode && Pressed(GameInputAction.VendorComparisonToggle)) HandleControl(ClientControl.ToggleVendorComparison);
         if (Pressed(GameInputAction.DeveloperToggle)) HandleControl(ClientControl.ToggleGodMode);
         if (Pressed(GameInputAction.DeveloperAddDirty)) HandleControl(ClientControl.GodAddDirty);
         if (Pressed(GameInputAction.DeveloperSetCleanSupply)) HandleControl(ClientControl.GodSetCleanSupply);
@@ -720,6 +733,16 @@ public sealed class DishStationGame : Game
                 if (PatternCodexVisible) screenRouter.TogglePatternCodex();
                 UpdateWindowTitle();
                 break;
+            case ClientControl.ToggleVendorComparison: ToggleVendorComparison(); break;
+            case ClientControl.VendorComparisonPrevious: SelectVendorProposal(-1); break;
+            case ClientControl.VendorComparisonNext: SelectVendorProposal(1); break;
+            case ClientControl.VendorComparisonRunTrial:
+                ExecuteVendor(new RunVendorProposalTrialCommand(vendorWorld.Tick));
+                break;
+            case ClientControl.VendorComparisonClose:
+                if (VendorComparisonVisible) screenRouter.ToggleVendorComparison();
+                UpdateWindowTitle();
+                break;
             case ClientControl.ToggleGodMode:
                 if (!DeveloperToolsAvailable)
                 {
@@ -1027,6 +1050,42 @@ public sealed class DishStationGame : Game
             commandFeedback = error.Message;
         }
         UpdateWindowTitle();
+    }
+
+    private void ToggleVendorComparison()
+    {
+        if (VendorComparisonVisible)
+        {
+            screenRouter.ToggleVendorComparison();
+            UpdateWindowTitle();
+            return;
+        }
+        if (!patternKnowledge.For(DishStationPatternContent.Strategy.PatternId).Has(PatternKnowledgeMilestone.Named))
+        {
+            commandFeedback = "Sam's proposal review opens after the reusable routing choice has a recorded name.";
+            UpdateWindowTitle();
+            return;
+        }
+        screenRouter.ToggleVendorComparison();
+        commandFeedback = "Sam's build and vendor contract proposals are ready for the same incident trial.";
+        UpdateWindowTitle();
+    }
+
+    private void SelectVendorProposal(int offset)
+    {
+        var proposals = Enum.GetValues<VendorProposalId>();
+        var current = Array.IndexOf(proposals, vendorWorld.SelectedProposal);
+        var next = proposals[(current + offset + proposals.Length) % proposals.Length];
+        ExecuteVendor(new SelectVendorProposalCommand(vendorWorld.Tick, next));
+    }
+
+    private bool ExecuteVendor(IVendorOutsourcingCommand command)
+    {
+        var result = vendorWorld.ExecuteNow(command);
+        commandFeedback = result.Message;
+        if (result.Success) SaveCareer();
+        UpdateWindowTitle();
+        return result.Success;
     }
 
     private void ToggleSelectedAutomationRuleValue()
@@ -1846,6 +1905,7 @@ public sealed class DishStationGame : Game
             else if (AutomationEditorVisible) DrawAutomationRuleEditor(snapshot.Automation);
             else if (TwoStationRoutingVisible) DrawTwoStationRouting();
             else if (PatternCodexVisible) DrawPatternCodex();
+            else if (VendorComparisonVisible) DrawVendorComparison();
             else if (QuestJournalVisible)
             {
                 if (QuestDetailVisible) DrawQuestDetail(snapshot.Progression);
@@ -1911,7 +1971,10 @@ public sealed class DishStationGame : Game
             var codexHint = patternKnowledge.For(DishStationPatternContent.Strategy.PatternId).Has(PatternKnowledgeMilestone.Recognized)
                 ? $" OR {Binding(GameInputAction.PatternCodexToggle)} FOR CODEX"
                 : "";
-            PixelFont.Draw(spriteBatch!, pixel!, $"PRESS {Binding(GameInputAction.TwoStationRoutingToggle)} FOR TWO STATIONS, {Binding(GameInputAction.ShiftReportToggle)} FOR REPORT{codexHint}.", 27, 107, 1, Color.White, 100);
+            var vendorHint = patternKnowledge.For(DishStationPatternContent.Strategy.PatternId).Has(PatternKnowledgeMilestone.Named)
+                ? $" OR {Binding(GameInputAction.VendorComparisonToggle)} FOR VENDOR REVIEW"
+                : "";
+            PixelFont.Draw(spriteBatch!, pixel!, $"PRESS {Binding(GameInputAction.TwoStationRoutingToggle)} TWO STATIONS, {Binding(GameInputAction.ShiftReportToggle)} REPORT{codexHint}{vendorHint}.", 27, 107, 1, Color.White, 100);
         }
 
         var processHint = snapshot.ProcessCapture.Active is { } activeCapture
@@ -2137,6 +2200,56 @@ public sealed class DishStationGame : Game
         PixelFont.Draw(spriteBatch!, pixel!, "THE NAME DESCRIBES THE SHAPE. YOUR TRIALS EXPLAIN WHY IT MATTERS.",
             72, 540, 1, Color.LightGray, 105);
         PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.PatternCodexClose)} CLOSE", 824, 544, 1, Color.LightGray, 18);
+    }
+
+    private void DrawVendorComparison()
+    {
+        var view = VendorComparisonPresenter.Present(vendorWorld.Configuration, vendorWorld.Snapshot(),
+            DishStationVendorContent.Quest);
+        DrawPanel(16, 16, 992, 568, new Color(14, 29, 39, 252), Color.CornflowerBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Title, 52, 38, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Speaker, 700, 42, 1, Color.MediumPurple, 44);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Pitch, 52, 80, 1, Color.LightGray, 148);
+        PixelFont.Draw(spriteBatch!, pixel!, view.SharedIncident, 52, 119, 1, Color.Goldenrod, 148);
+        var x = 52f;
+        foreach (var card in view.Proposals)
+        {
+            var accent = card.Id switch
+            {
+                VendorProposalId.BuildInHouse => Color.CornflowerBlue,
+                VendorProposalId.ManagedVendor => Color.Goldenrod,
+                VendorProposalId.ObservableVendor => Color.LightGreen,
+                _ => Color.White,
+            };
+            DrawPanel(x, 145, 288, 198, new Color(24, 43, 54, 245), card.Selected ? accent : new Color(55, 75, 85));
+            PixelFont.Draw(spriteBatch!, pixel!, card.Selected ? $"SELECTED  {card.Title}" : card.Title, x + 14, 159, 1, accent, 42);
+            PixelFont.Draw(spriteBatch!, pixel!, card.Source, x + 14, 184, 1, Color.LightGray, 42);
+            PixelFont.Draw(spriteBatch!, pixel!, card.Boundary, x + 14, 207, 1, Color.White, 42);
+            PixelFont.Draw(spriteBatch!, pixel!, card.Contract, x + 14, 230, 1, Color.LightGray, 42);
+            PixelFont.Draw(spriteBatch!, pixel!, card.Ownership, x + 14, 264, 1, Color.White, 42);
+            PixelFont.Draw(spriteBatch!, pixel!, card.NormalEconomy, x + 14, 287, 1, Color.LightSkyBlue, 42);
+            PixelFont.Draw(spriteBatch!, pixel!, card.Risk, x + 14, 310, 1, Color.Goldenrod, 42);
+            if (card.IncidentOutcome is { } outcome)
+                PixelFont.Draw(spriteBatch!, pixel!, outcome, x + 14, 329, 1,
+                    card.Viable == true ? Color.LightGreen : Color.OrangeRed, 42);
+            x += 306;
+        }
+
+        DrawPanel(52, 357, 900, 142, new Color(18, 35, 46, 245), Color.MediumPurple);
+        PixelFont.Draw(spriteBatch!, pixel!, "SELECTED INCIDENT / SUPPORT TRACE", 68, 371, 1, Color.MediumPurple);
+        var traceY = 395f;
+        if (view.SelectedTrace.Count == 0)
+            PixelFont.Draw(spriteBatch!, pixel!, "RUN THE SELECTED PROPOSAL TO OBSERVE ITS CONTRACT BOUNDARY.", 68, traceY, 1, Color.LightGray, 140);
+        else foreach (var entry in view.SelectedTrace)
+        {
+            PixelFont.Draw(spriteBatch!, pixel!, entry, 68, traceY, 1, Color.LightGray, 140);
+            traceY += 20;
+        }
+        PixelFont.Draw(spriteBatch!, pixel!, view.Outcome, 52, 516, 1,
+            vendorWorld.Snapshot().ComparedProposalCount >= 2 ? Color.LightGreen : Color.Goldenrod, 148);
+        PixelFont.Draw(spriteBatch!, pixel!,
+            $"{Binding(GameInputAction.VendorComparisonPrevious)} / {Binding(GameInputAction.VendorComparisonNext)} SELECT   {Binding(GameInputAction.VendorComparisonRunTrial)} RUN SAME INCIDENT   {Binding(GameInputAction.VendorComparisonClose)} CLOSE",
+            52, 548, 1, Color.LightGray, 145);
     }
 
     private void DrawPlacementTools(DishStationSnapshot snapshot)
@@ -2913,7 +3026,8 @@ public sealed class DishStationGame : Game
         var routing = twoStationWorld.Snapshot();
         var routingProfile = DishStationTwoStationsContent.Configuration.Stations[selectedRoutingStation];
         var codexKnowledge = patternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
-        Window.Title = $"The Automation Game — [room={roomPresentationStatus}] [screen={screenRouter.Screen}] [modal={screenRouter.Modal}] [menu={menu}] [save={saveStatus}] [settings={settingsStatus}] [window={clientSettings.WindowMode}] [volume={clientSettings.MasterVolumePercent}] [ui={clientSettings.UiScalePercent}] [cameraSensitivity={clientSettings.CameraSensitivityPercent}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={QuestJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={QuestDetailVisible}] [report={ShiftReportVisible}] [help={HelpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [canvas={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] [routingStation={routingProfile.Id}] [routingPolicy={routing.PolicyFor(routingProfile.Id)}] [routingTrials={routing.Trials.Count}] [routingShortages={routing.LatestTrial?.TotalShortages.ToString() ?? "none"}] [codex={(codexKnowledge.Has(PatternKnowledgeMilestone.Named) ? "named" : codexKnowledge.Has(PatternKnowledgeMilestone.Recognized) ? "recognized" : "locked")}:{codexKnowledge.Evidence.Length}] {note}";
+        var vendor = vendorWorld.Snapshot();
+        Window.Title = $"The Automation Game — [room={roomPresentationStatus}] [screen={screenRouter.Screen}] [modal={screenRouter.Modal}] [menu={menu}] [save={saveStatus}] [settings={settingsStatus}] [window={clientSettings.WindowMode}] [volume={clientSettings.MasterVolumePercent}] [ui={clientSettings.UiScalePercent}] [cameraSensitivity={clientSettings.CameraSensitivityPercent}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={QuestJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={QuestDetailVisible}] [report={ShiftReportVisible}] [help={HelpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [canvas={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] [routingStation={routingProfile.Id}] [routingPolicy={routing.PolicyFor(routingProfile.Id)}] [routingTrials={routing.Trials.Count}] [routingShortages={routing.LatestTrial?.TotalShortages.ToString() ?? "none"}] [codex={(codexKnowledge.Has(PatternKnowledgeMilestone.Named) ? "named" : codexKnowledge.Has(PatternKnowledgeMilestone.Recognized) ? "recognized" : "locked")}:{codexKnowledge.Evidence.Length}] [vendor={vendor.SelectedProposal}:{vendor.Trials.Count}:{vendor.ComparedProposalCount}] {note}";
     }
 
     private readonly record struct WorkstationPresentation(
@@ -3003,6 +3117,11 @@ internal enum ClientControl
     TogglePatternCodex,
     PatternCodexReflect,
     PatternCodexClose,
+    ToggleVendorComparison,
+    VendorComparisonPrevious,
+    VendorComparisonNext,
+    VendorComparisonRunTrial,
+    VendorComparisonClose,
     ToggleGodMode,
     GodAddDirty,
     GodSetCleanSupply,

@@ -29,6 +29,8 @@ public sealed class InputActionMapTests
         Assert.Equal(InputActionContext.TwoStationRouting, InputActionCatalog.ContextOf(GameInputAction.TwoStationRoutingRunTrial));
         Assert.True(profile.Matches(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8));
         Assert.True(profile.Matches(GameInputAction.PatternCodexReflect, KeyboardKey.Enter));
+        Assert.True(profile.Matches(GameInputAction.VendorComparisonToggle, KeyboardKey.Digit9));
+        Assert.Equal(InputActionContext.VendorComparison, InputActionCatalog.ContextOf(GameInputAction.VendorComparisonRunTrial));
         Assert.Equal(InputActionContext.PatternCodex, InputActionCatalog.ContextOf(GameInputAction.PatternCodexClose));
         Assert.Equal(InputActionContext.AutomationEditor, InputActionCatalog.ContextOf(GameInputAction.AutomationEditorToggleValue));
         Assert.Equal(InputActionContext.Gameplay, InputActionCatalog.ContextOf(GameInputAction.ProcessCaptureToggle));
@@ -169,6 +171,23 @@ public sealed class InputActionMapTests
 
         Assert.True(migrated.Matches(GameInputAction.PatternCodexToggle, KeyboardKey.K));
         Assert.True(migrated.Matches(GameInputAction.PatternCodexReflect, KeyboardKey.Enter));
+    }
+
+    [Fact]
+    public void SchemaSevenProfileAddsVendorComparisonWithoutLosingCodexRemaps()
+    {
+        var legacy = InputBindingProfile.Default
+            .WithBinding(GameInputAction.PatternCodexToggle, KeyboardKey.K)
+            .Bindings
+            .Where(binding => InputActionCatalog.ContextOf(binding.Action) != InputActionContext.VendorComparison &&
+                              binding.Action != GameInputAction.VendorComparisonToggle)
+            .ToArray();
+
+        var migrated = new InputBindingProfile(7, legacy);
+
+        Assert.True(migrated.Matches(GameInputAction.PatternCodexToggle, KeyboardKey.K));
+        Assert.True(migrated.Matches(GameInputAction.VendorComparisonToggle, KeyboardKey.Digit9));
+        Assert.True(migrated.Matches(GameInputAction.VendorComparisonRunTrial, KeyboardKey.Enter));
     }
 
     [Fact]

@@ -118,3 +118,11 @@ A player can own code they did not type if they can explain:
 - how failure is handled;
 - what evidence shows it works;
 - when it should be changed.
+
+## Current restaurant implementation
+
+S033 implements one bounded **Buy the Box** side arc after Strategy is named. Sam Rivera offers a mature routing/monitoring package, while the player may also keep the work in house. Three authored proposal bundles make different commitments about sourcing, integration boundary, support response, trace visibility, manual fallback, recurring/setup/maintenance cost, and who understands the boundary.
+
+Every trial receives the same eight-request horizon and the same rare-tray mismatch: the restaurant emits `exception`, while the package contract expects `special`. The vendor behaves according to its defined interface; Sam is not made arbitrarily incompetent. `VendorOutsourcingWorld` reports normal cost/net, handled and missed requests, shortage and fallback costs, incident net, support timing, and a causal trace. In-house, managed-vendor, and observable-adapter choices all remain positive-net, but move downtime, labor, cost, and organizational understanding differently.
+
+The client comparison board sends only explicit select/run commands and presents authoritative snapshots. At least two completed proposals establish the side-arc outcome, with no universally correct contract. Career schema 3 persists the command journal and exact traces; schema-2 careers begin the optional arc empty.

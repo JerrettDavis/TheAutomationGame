@@ -547,6 +547,21 @@ try {
     $strategyPatternScreenshot = Save-WindowScreenshot $process $windowBounds "strategy-pattern"
     Send-GameControl $process "PatternCodexClose"
     Wait-ForTitle $process "[modal=None]" 3
+    Send-GameControl $process "ToggleVendorComparison"
+    Wait-ForTitle $process "[modal=VendorComparison]" 3
+    Send-GameControl $process "VendorComparisonNext"
+    Wait-ForTitle $process "[vendor=ManagedVendor:0:0]" 3
+    Send-GameControl $process "VendorComparisonRunTrial"
+    Wait-ForTitle $process "[vendor=ManagedVendor:1:1]" 3
+    $vendorManagedScreenshot = Save-WindowScreenshot $process $windowBounds "vendor-managed-incident"
+    Send-GameControl $process "VendorComparisonNext"
+    Wait-ForTitle $process "[vendor=ObservableVendor:1:1]" 3
+    Send-GameControl $process "VendorComparisonRunTrial"
+    Wait-ForTitle $process "[vendor=ObservableVendor:2:2]" 3
+    Start-Sleep -Milliseconds 150
+    $vendorComparisonScreenshot = Save-WindowScreenshot $process $windowBounds "vendor-comparison"
+    Send-GameControl $process "VendorComparisonClose"
+    Wait-ForTitle $process "[modal=None]" 3
 
     Send-GameControl $process "CameraZoomIn"
     Wait-ForTitle $process "[zoom=1.10]" 3
@@ -555,7 +570,7 @@ try {
     Send-GameControl $process "CameraReset"
     Wait-ForTitle $process "[zoom=1.00] [cam=0,0]" 3
 
-    $screenshots = @($lockedToolsScreenshot, $introWelcomeScreenshot, $introGuidanceScreenshot, $introComfortScreenshot, $shiftHandbookScreenshot, $progressionReceiptScreenshot, $earlyJournalScreenshot, $activeQuestDetailScreenshot, $placementScreenshot, $scalingScreenshot, $shiftReviewScreenshot, $shiftRunningScreenshot, $twoStationScreenshot, $patternCodexScreenshot, $strategyPatternScreenshot)
+    $screenshots = @($lockedToolsScreenshot, $introWelcomeScreenshot, $introGuidanceScreenshot, $introComfortScreenshot, $shiftHandbookScreenshot, $progressionReceiptScreenshot, $earlyJournalScreenshot, $activeQuestDetailScreenshot, $placementScreenshot, $scalingScreenshot, $shiftReviewScreenshot, $shiftRunningScreenshot, $twoStationScreenshot, $patternCodexScreenshot, $strategyPatternScreenshot, $vendorManagedScreenshot, $vendorComparisonScreenshot)
     Start-Sleep -Milliseconds 150
     $screenshots += Save-WindowScreenshot $process $windowBounds "runtime"
     foreach ($lens in @("State", "Knowledge", "Automation", "Runtime", "Responsibility", "Reality", "Process", "State")) {
@@ -664,6 +679,12 @@ try {
     Wait-ForTitle $process "[level=7] [xp=3400]" 3
     Wait-ForTitle $process "[trial=Passed:3/3]" 3
     Wait-ForTitle $process "[routingTrials=2] [routingShortages=0] [codex=named:2]" 3
+    Wait-ForTitle $process "[vendor=ObservableVendor:2:2]" 3
+    Send-GameControl $process "ToggleVendorComparison"
+    Wait-ForTitle $process "[modal=VendorComparison]" 3
+    $screenshots += Save-WindowScreenshot $process $windowBounds "vendor-comparison-resumed"
+    Send-GameControl $process "VendorComparisonClose"
+    Wait-ForTitle $process "[modal=None]" 3
     Send-GameControl $process "TogglePatternCodex"
     Wait-ForTitle $process "[modal=PatternCodex]" 3
     $screenshots += Save-WindowScreenshot $process $windowBounds "strategy-pattern-resumed"

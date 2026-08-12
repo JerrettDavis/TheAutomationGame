@@ -257,9 +257,9 @@ NPCs should act on what they know, not global simulation truth.
 
 Need bounded, authored lines triggered by state, incident, relationship, quest beat, and observed outcomes.
 
-### G-STORY-004: Vendor/integrator characters are not yet systemic — P1
+### G-STORY-004: Vendor/integrator breadth remains limited — PARTIAL / P1
 
-They are important for teaching outsourcing, contracts, SLAs, abstraction, observability, and lock-in.
+S033 makes Sam Rivera systemic in one restaurant side arc: authored contract/SLA/boundary terms drive deterministic cost, availability, observability, fallback, knowledge-ownership, support, replay, persistence, and client consequences. Cross-industry recurrence, negotiation, renewal, lock-in exit, and vendor portfolio behavior remain open.
 
 ---
 

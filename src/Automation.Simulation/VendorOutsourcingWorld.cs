@@ -196,7 +196,7 @@ public sealed class VendorOutsourcingWorld
         {
             new(Configuration.IncidentAtTick, VendorIncidentPhase.BoundaryMismatch,
                 terms.TraceAvailable
-                    ? $"Local code '{Configuration.LocalRareTrayCode}' did not map to contracted vendor code '{Configuration.VendorRareTrayCode}'."
+                    ? $"Local code {Configuration.LocalRareTrayCode} did not map to boundary code {Configuration.VendorRareTrayCode}."
                     : "The managed package stopped at its external boundary; local operators cannot see the mapping decision.",
                 terms.KnowledgeOwner),
             new(Configuration.IncidentAtTick, VendorIncidentPhase.ResponseStarted,
@@ -210,7 +210,7 @@ public sealed class VendorOutsourcingWorld
                 $"The player-owned adapter kept {fallbackRequests} requests moving through manual fallback.",
                 VendorKnowledgeOwner.RestaurantTeam));
         trace.Add(new(recoveryTick, VendorIncidentPhase.RootCauseExplained,
-            $"The '{Configuration.LocalRareTrayCode}' to '{Configuration.VendorRareTrayCode}' boundary mapping was made explicit.",
+            $"The {Configuration.LocalRareTrayCode} to {Configuration.VendorRareTrayCode} boundary mapping was made explicit.",
             terms.Sourcing == VendorSourcingMode.InternalBuild ? VendorKnowledgeOwner.RestaurantTeam : VendorKnowledgeOwner.Shared));
         trace.Add(new(recoveryTick, VendorIncidentPhase.ServiceRestored,
             "Automated routing resumed with the rare-tray mapping defined.",

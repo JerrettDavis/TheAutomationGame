@@ -272,6 +272,8 @@ S031 adds engine-neutral, immutable pattern knowledge without teaching the simul
 
 S032 keeps naming outside Simulation. Schema-v1 content authors the conventional display name, reflection acknowledgement, intent, concrete restaurant structure, benefits, and costs. `PatternNamingService` is the explicit application boundary: it rejects naming before `Recognized`, retains the applied evidence ID as the `Named` conclusion basis, and is idempotent. Career schema 2 persists conclusion citations and migrates schema-1 recognition. The Stride Codex submits the reflection action, saves immediately, and projects the named page; it does not score an answer or invent knowledge.
 
+S033 adds a concrete outsourcing comparison instead of a generic procurement platform. Domain owns validated proposal/contract value types; Content authors exactly three restaurant proposals and one explicit `exception`/`special` boundary mismatch; `VendorOutsourcingWorld` owns selection, fixed-input trials, service/cost outcomes, causal incident traces, and replay. All consequential changes enter through select/run commands. The managed package is not sabotaged: it follows an underspecified contract, and support latency/visibility follow the selected terms. Career schema 3 adds its replay. The paused Stride board projects snapshots and never recalculates contract outcomes.
+
 ## Save evolution
 
 Before campaign alpha, saves should include:

@@ -176,6 +176,7 @@ dotnet run --project src/Automation.Headless -c Release -- --automation-editor-d
 dotnet run --project src/Automation.Headless -c Release -- --automation-compare-demo
 dotnet run --project src/Automation.Headless -c Release -- --pattern-knowledge-demo
 dotnet run --project src/Automation.Headless -c Release -- --pattern-naming-demo
+dotnet run --project src/Automation.Headless -c Release -- --vendor-demo
 dotnet run --project src/Automation.Headless -c Release -- --compile-content content/fixtures/schema-v1/minimal-restaurant.yaml
 dotnet run --project src/Automation.Headless -c Release -- --compile-content content/restaurant/first-shift.yaml
 dotnet run --project src/Automation.Headless -c Release -- --expand-template content/templates/proofs/seeded-scenario.template.yaml --named-seed proof-0 --parameter facility-slug=proof-house --parameter rack-capacity=12
@@ -223,6 +224,7 @@ Keyboard defaults are defined by a versioned, engine-neutral action-binding prof
 - `6` opens the paused Automation Rule Editor. Use `Up` / `Down` to select enabled state, rack/readiness conditions, or the closed Start Washer action; `Space` changes an editable value, `Enter` validates/applies, and `Esc` discards. `B` saves the applied rule as baseline, `V` saves it as variant, and `R` runs both under the same controlled seed/scenario. The panel shows metric deltas plus authoritative inputs, predicates, selected effect, and command outcome;
 - after the first shift, `7` opens **Two Stations, One Problem**. `Left` / `Right` selects main or patio in the same routing decision slot, `Up` / `Down` changes that station's policy, `C` copies main to patio, `Enter` runs both stations under the same authored horizon, and `Esc` closes. The board shows authoritative completion, shortage, and net consequences and reveals the discovery only after both demands are supplied;
 - after the copied and fitted routing trials establish recognition, `8` opens the Pattern Codex. Its pre-name page cites the player's two restaurant records and consequences; `Enter` records the player's reflection and reveals **Strategy Pattern** with intent, structure, benefits, and tradeoffs. This is an acknowledgement, not a quiz. `Esc` closes the Codex;
+- after Strategy is named, `9` opens Sam Rivera's **Buy the Box** comparison. `Left` / `Right` selects the in-house, managed-vendor, or observable-vendor proposal; `Enter` runs the selected contract through the same rare-tray boundary incident; `Esc` closes. Compare at least two viable proposals by cost, missed service, support response, trace, fallback, and retained knowledge;
 - `I` inspects an automation incident and `P` replays the captured incident against the currently applied player rule;
 - scenario-driving trace and reliability-window actions remain available to explicit developer-session controls and have no production WASD binding;
 - `V` cycles the currently unlocked reality, process, state, knowledge, automation, runtime, and responsibility lenses;

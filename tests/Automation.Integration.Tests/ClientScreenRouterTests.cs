@@ -171,6 +171,20 @@ public sealed class ClientScreenRouterTests
         Assert.Equal(ClientModal.None, router.Modal);
     }
 
+    [Fact]
+    public void VendorComparisonIsGameplayOnlyAndReplacesOtherModals()
+    {
+        var router = new ClientScreenRouter();
+        router.Initialize(hasCareerSave: false);
+        Assert.False(router.ToggleVendorComparison());
+        router.ShowCareer(briefingComplete: true);
+        router.TogglePatternCodex();
+        Assert.True(router.ToggleVendorComparison());
+        Assert.Equal(ClientModal.VendorComparison, router.Modal);
+        Assert.False(router.ToggleVendorComparison());
+        Assert.Equal(ClientModal.None, router.Modal);
+    }
+
     private static ClientScreenRouter GameplayRouter()
     {
         var router = new ClientScreenRouter();

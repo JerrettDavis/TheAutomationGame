@@ -20,6 +20,7 @@ public enum ClientModal
     AutomationEditor,
     TwoStationRouting,
     PatternCodex,
+    VendorComparison,
 }
 
 public sealed class ClientScreenRouter
@@ -131,6 +132,13 @@ public sealed class ClientScreenRouter
         if (!IsGameplay()) return false;
         Modal = Modal == ClientModal.PatternCodex ? ClientModal.None : ClientModal.PatternCodex;
         return Modal == ClientModal.PatternCodex;
+    }
+
+    public bool ToggleVendorComparison()
+    {
+        if (!IsGameplay()) return false;
+        Modal = Modal == ClientModal.VendorComparison ? ClientModal.None : ClientModal.VendorComparison;
+        return Modal == ClientModal.VendorComparison;
     }
 
     private bool IsGameplay() => Screen == ClientScreen.Gameplay;

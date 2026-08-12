@@ -288,7 +288,7 @@ scenarios:
           manual_fallback_available: false
           fallback_labor_cost_per_request: 0
         - id: managed-vendor
-          display_name: SAM'S MANAGED PACKAGE
+          display_name: SAM MANAGED PACKAGE
           sourcing: vendor-package
           boundary: vendor-managed
           knowledge_owner: vendor-only

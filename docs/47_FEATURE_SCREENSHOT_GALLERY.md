@@ -4,9 +4,9 @@ This is the reviewer-facing visual index for delivered session features. The PNG
 
 ## Current integrated build
 
-![Named Strategy Pattern page](screenshots/first-shift/strategy-pattern.png)
+![Completed vendor boundary comparison](screenshots/first-shift/vendor-comparison.png)
 
-The retained set was captured on 2026-08-12 from the integrated S001–S032 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, ran the copied and fitted two-station trials, recognized their reusable shape, recorded reflection, revealed Strategy, rendered the representative benchmark, and resumed the saved level-7 career with both evidence records and the named conclusion intact.
+The retained set was captured on 2026-08-12 from the integrated S001–S033 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, ran the copied and fitted two-station trials, named Strategy, compared managed and observable vendor contracts under the same incident, rendered the representative benchmark, and resumed with all prior evidence plus both vendor trials intact.
 
 ## Historical delivery mapping
 
@@ -44,6 +44,7 @@ The retained set was captured on 2026-08-12 from the integrated S001–S032 buil
 | S030 | Two Stations, One Problem | [two-station routing board](screenshots/first-shift/two-stations.png) | Same routing decision slot at both stations, demand-fitted policies, zero-shortage outcome, and authored discovery |
 | S031 | Pattern Knowledge and Codex Foundation | [pre-name Pattern Codex](screenshots/first-shift/pattern-codex.png) | Player-owned encountered/applied records, causal consequences, recognition, and deliberately withheld conventional name |
 | S032 | Name the Pattern | [Strategy Pattern reveal](screenshots/first-shift/strategy-pattern.png) | Evidence-gated conventional name, concrete structure, benefits, costs, and the player's two causal outcomes |
+| S033 | Vendor and Outsourcing Side Arc | [completed vendor comparison](screenshots/first-shift/vendor-comparison.png) | Same boundary mismatch, distinct support/visibility/fallback terms, two viable outcomes, and no universal winner |
 
 ## Additional retained review frames
 
@@ -61,6 +62,8 @@ The retained set was captured on 2026-08-12 from the integrated S001–S032 buil
 - [career resumed](screenshots/first-shift/career-resumed.png)
 - [Pattern Codex after career resume](screenshots/first-shift/pattern-codex-resumed.png)
 - [named Strategy page after career resume](screenshots/first-shift/strategy-pattern-resumed.png)
+- [managed vendor incident](screenshots/first-shift/vendor-managed-incident.png)
+- [vendor comparison after career resume](screenshots/first-shift/vendor-comparison-resumed.png)
 
 ## Refresh contract
 
