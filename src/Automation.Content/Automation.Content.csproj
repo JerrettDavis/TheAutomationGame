@@ -10,4 +10,14 @@
     <ProjectReference Include="..\Automation.Domain\Automation.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\content\restaurant\first-shift.yaml"
+                      Link="Content\first-shift.yaml"
+                      LogicalName="Automation.Content.first-shift.yaml" />
+  </ItemGroup>
+
 </Project>

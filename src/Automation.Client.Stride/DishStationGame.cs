@@ -27,11 +27,17 @@ public sealed class DishStationGame : Game
     ];
     private static readonly DishState[] DishStates = Enum.GetValues<DishState>();
     private static readonly SystemLens[] SystemLenses = Enum.GetValues<SystemLens>();
+    private InputBindingProfile inputBindings;
+    private ClientSettings clientSettings;
+    private readonly string clientSettingsPath;
+    private readonly ClientScreenRouter screenRouter = new();
+    private readonly PresentationCatalog presentationCatalog;
 
-    private DishStationWorld world = new(42);
+    private DishStationWorld world = new(42, DishStationFirstHoursContent.ScenarioConfiguration);
     private double simulationAccumulator;
     private DishKind selectedKind = DishKind.Plate;
     private int selectedWorkstation;
+    private DishStationFixture? selectedInteractionFixture = DishStationFixture.Scrape;
     private bool godMode;
     private bool benchmarkVisible;
     private SyntheticWorkResult? benchmarkResult;
@@ -40,6 +46,7 @@ public sealed class DishStationGame : Game
     private SystemLens activeLens = SystemLens.Process;
     private readonly string? driverControlFile = Environment.GetEnvironmentVariable("AUTOMATION_UI_CONTROL_FILE");
     private readonly bool developerToolsOptIn = string.Equals(Environment.GetEnvironmentVariable("AUTOMATION_DEVELOPER_TOOLS"), "1", StringComparison.Ordinal);
+    private readonly bool diagnosticTitleOptIn = string.Equals(Environment.GetEnvironmentVariable("AUTOMATION_DIAGNOSTIC_TITLE"), "1", StringComparison.Ordinal);
     private readonly bool fullscreenPresentation;
     private readonly int requestedWidth;
     private readonly int requestedHeight;
@@ -49,30 +56,45 @@ public sealed class DishStationGame : Game
     private SpriteBatch? spriteBatch;
     private Texture? pixel;
     private Texture? diamond;
+    private Texture? washerProjection;
+    private DishRoomNativeScene? nativeRoom;
+    private string roomPresentationStatus = "pending";
     private IsometricCamera camera = IsometricCamera.Default;
     private bool placementMode;
     private DishStationFixture placementFixture;
     private FloorCell placementPreview = DishStationPlacements.Linear.Scrape;
     private readonly Stack<PlacementUndo> placementUndo = new();
-    private Vector2 visualPlayerCell;
-    private bool visualPlayerInitialized;
+    private readonly DishStationCharacterPresenter characterPresenter = new();
+    private DishStationCharacterFrame characterFrame;
+    private readonly DishStationAudioRouter audioRouter = new();
+    private DishStationAudioPresenter? audioPresenter;
+    private string audioStatus = "pending";
+    private string audioCaption = "";
+    private float audioCaptionSeconds;
+    private readonly CharacterDialogueRouter dialogueRouter = new(DishStationFirstHoursContent.Catalog);
+    private int observedNarrativeEvents;
+    private CharacterBarkPresentation? activeCharacterBark;
+    private float characterBarkSeconds;
     private float canvasScale = 1;
     private float canvasOffsetX;
     private float canvasOffsetY;
+    private float uiCanvasScale = 1;
+    private float uiCanvasOffsetX;
+    private float uiCanvasOffsetY;
     private DishStationFixture? hoveredFixture;
     private float interactionTime;
+    private DirectMovementInput activeMovementInput;
+    private double movementRepeatRemaining;
+    private readonly GameplayClickRoute clickMovement = new();
+    private double clickMovementRepeatRemaining;
     private readonly Dictionary<string, Texture> interactionIcons = new(StringComparer.Ordinal);
     private string lastPointerAction = "NONE";
     private int introPage;
     private GuidanceMode selectedGuidance = GuidanceMode.Guided;
     private bool selectedReducedMotion;
     private bool selectedHighContrast;
-    private bool questJournalVisible;
-    private bool helpVisible;
     private readonly Dictionary<DishTutorialStage, HandbookVisitEvidence> handbookVisits = new();
     private int selectedJournalQuest;
-    private bool questDetailVisible;
-    private bool shiftReportVisible;
     private int observedLevel = 1;
     private DishStationQuestId? observedActiveQuest = DishStationQuestId.ClockIn;
     private DishStationQuestId? progressionReceiptQuest;
@@ -82,9 +104,11 @@ public sealed class DishStationGame : Game
     private readonly string careerSavePath = Environment.GetEnvironmentVariable("AUTOMATION_SAVE_PATH")
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TheAutomationGame", "career.json");
     private readonly bool careerSaveEnabled = !string.Equals(Environment.GetEnvironmentVariable("AUTOMATION_DISABLE_CAREER_SAVE"), "1", StringComparison.Ordinal);
-    private bool startMenuVisible;
-    private bool newCareerConfirmation;
     private int startMenuSelection;
+    private int settingsSelection;
+    private int selectedProcessStep;
+    private int selectedAutomationRuleRow;
+    private string settingsStatus = "READY";
     private double autosaveAccumulator;
     private long lastAutosaveTick = -1;
     private string saveStatus = "NEW";
@@ -97,9 +121,30 @@ public sealed class DishStationGame : Game
     private string playtestEvidenceStatus = "off";
     private bool DeveloperToolsAvailable => !string.IsNullOrWhiteSpace(driverControlFile) || developerToolsOptIn ||
         world.TutorialStage == DishTutorialStage.EpisodeComplete;
+    private bool StartMenuVisible => screenRouter.Screen == ClientScreen.StartMenu;
+    private bool BriefingVisible => screenRouter.Screen == ClientScreen.Briefing;
+    private bool QuestJournalVisible => screenRouter.JournalVisible;
+    private bool QuestDetailVisible => screenRouter.Modal == ClientModal.QuestDetail;
+    private bool HelpVisible => screenRouter.Modal == ClientModal.Help;
+    private bool ShiftReportVisible => screenRouter.Modal == ClientModal.ShiftReport;
+    private bool SettingsVisible => screenRouter.Modal == ClientModal.Settings;
+    private bool NewCareerConfirmationVisible => screenRouter.Modal == ClientModal.NewCareerConfirmation;
+    private bool ProcessEditorVisible => screenRouter.Modal == ClientModal.ProcessEditor;
+    private bool AutomationEditorVisible => screenRouter.Modal == ClientModal.AutomationEditor;
 
-    public DishStationGame(bool fullscreenPresentation = false, int requestedWidth = 1280, int requestedHeight = 720)
+    public DishStationGame(
+        bool fullscreenPresentation = false,
+        int requestedWidth = 1280,
+        int requestedHeight = 720,
+        InputBindingProfile? inputBindings = null,
+        ClientSettings? clientSettings = null,
+        string? clientSettingsPath = null,
+        PresentationCatalog? presentationCatalog = null)
     {
+        this.clientSettings = clientSettings ?? ClientSettings.Default;
+        this.inputBindings = inputBindings ?? this.clientSettings.InputBindings;
+        this.clientSettingsPath = clientSettingsPath ?? ClientSettingsStore.DefaultPath;
+        this.presentationCatalog = presentationCatalog ?? PresentationCatalog.Default;
         this.fullscreenPresentation = fullscreenPresentation;
         this.requestedWidth = requestedWidth;
         this.requestedHeight = requestedHeight;
@@ -118,10 +163,17 @@ public sealed class DishStationGame : Game
         pixel = Texture.New2D(GraphicsDevice, 1, 1, PixelFormat.R8G8B8A8_UNorm, TextureFlags.ShaderResource);
         pixel.SetData(GraphicsContext.CommandList, [Color.White]);
         diamond = IsometricStationScene.CreateDiamondTexture(GraphicsDevice, GraphicsContext);
+        var washerPresentation = presentationCatalog.Resolve(PresentationIds.Washer, PresentationIds.FallbackWorkstation);
+        washerProjection = WasherAssetPresentation.TryLoadProjection(GraphicsDevice, washerPresentation.ProjectionResourceSuffix);
+        nativeRoom = DishRoomNativeScene.TryCreate(this, world.Placements, presentationCatalog, out roomPresentationStatus);
+        audioPresenter = DishStationAudioPresenter.TryCreate(Content, clientSettings.MasterVolumePercent, out audioStatus);
+        audioRouter.Initialize(world.Snapshot(), world.Notifications.Count);
+        InitializeDialogue(world.Snapshot());
+        audioRouter.Start(EmitAudio);
         foreach (var name in new[] { "pointer_a", "hand_point", "look_a", "disabled", "target_round_a" })
             interactionIcons[name] = LoadInteractionIcon(name);
-        startMenuVisible = careerSaveEnabled && File.Exists(careerSavePath);
-        saveStatus = startMenuVisible ? "FOUND" : careerSaveEnabled ? "NEW" : "OFF";
+        screenRouter.Initialize(careerSaveEnabled && File.Exists(careerSavePath));
+        saveStatus = StartMenuVisible ? "FOUND" : careerSaveEnabled ? "NEW" : "OFF";
         playtestEvidenceStatus = string.IsNullOrWhiteSpace(playtestEvidencePath) ? "off" : "pending";
         UpdateWindowTitle();
     }
@@ -129,84 +181,126 @@ public sealed class DishStationGame : Game
     protected override void Update(GameTime gameTime)
     {
         interactionTime += (float)gameTime.Elapsed.TotalSeconds;
-        hoveredFixture = world.IntroComplete && !questJournalVisible && !helpVisible && activeLens is SystemLens.Reality or SystemLens.Process
-            ? IsometricStationScene.HitTest(VirtualMousePosition().X, VirtualMousePosition().Y, world.Placements, camera)
+        audioCaptionSeconds = Math.Max(0, audioCaptionSeconds - (float)gameTime.Elapsed.TotalSeconds);
+        characterBarkSeconds = Math.Max(0, characterBarkSeconds - (float)gameTime.Elapsed.TotalSeconds);
+        hoveredFixture = screenRouter.Screen == ClientScreen.Gameplay && screenRouter.Modal == ClientModal.None && activeLens is SystemLens.Reality or SystemLens.Process
+            ? IsometricStationScene.HitTest(VirtualMousePosition().X, VirtualMousePosition().Y, world.Placements, camera,
+                presentationCatalog, washerProjection is not null)
             : null;
-        var playerCell = world.PlayerCell;
-        var playerTarget = new Vector2(playerCell.X, playerCell.Y);
-        if (!visualPlayerInitialized)
-        {
-            visualPlayerCell = playerTarget;
-            visualPlayerInitialized = true;
-        }
-        else
-        {
-            visualPlayerCell = world.Snapshot().Onboarding.ReducedMotion
-                ? playerTarget
-                : Vector2.Lerp(visualPlayerCell, playerTarget, Math.Min(1f, (float)gameTime.Elapsed.TotalSeconds * 7f));
-        }
+        var characterSnapshot = world.Snapshot();
+        var characterReducedMotion = characterSnapshot.Onboarding.ReducedMotion ||
+                                     (!characterSnapshot.Onboarding.Complete && selectedReducedMotion);
+        characterFrame = characterPresenter.Update(characterSnapshot, (float)gameTime.Elapsed.TotalSeconds, characterReducedMotion);
 
         simulationAccumulator += gameTime.Elapsed.TotalSeconds;
         while (simulationAccumulator >= 0.1)
         {
-            if (!paused && world.IntroComplete && !startMenuVisible) world.Advance();
+            if (ClientSimulationPolicy.ShouldAdvance(paused, screenRouter.Screen, screenRouter.Modal)) world.Advance();
             simulationAccumulator -= 0.1;
             if (world.Tick.Value % 10 == 0) UpdateWindowTitle();
         }
+        audioRouter.Observe(world.Snapshot(), world.Notifications, EmitAudio);
+        ObserveDialogue(world.Snapshot());
 
         progressionReceiptSeconds = Math.Max(0, progressionReceiptSeconds - (float)gameTime.Elapsed.TotalSeconds);
         ObserveProgression();
 
-        if (startMenuVisible)
+        if (SettingsVisible)
+        {
+            HandleSettingsPointer();
+            if (Pressed(GameInputAction.SettingsPrevious)) HandleControl(ClientControl.SettingsPrevious);
+            if (Pressed(GameInputAction.SettingsNext)) HandleControl(ClientControl.SettingsNext);
+            if (Pressed(GameInputAction.SettingsDecrease)) HandleControl(ClientControl.SettingsDecrease);
+            if (Pressed(GameInputAction.SettingsIncrease)) HandleControl(ClientControl.SettingsIncrease);
+            if (Pressed(GameInputAction.SettingsConfirm)) HandleControl(ClientControl.SettingsConfirm);
+            if (Pressed(GameInputAction.SettingsReset)) HandleControl(ClientControl.SettingsReset);
+            if (Pressed(GameInputAction.SettingsClose)) HandleControl(ClientControl.ToggleSettings);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
+        if (StartMenuVisible)
         {
             HandleStartMenuPointer();
-            if (Input.IsKeyPressed(Keys.Q) || Input.IsKeyPressed(Keys.Left)) HandleControl(ClientControl.MenuPrevious);
-            if (Input.IsKeyPressed(Keys.E) || Input.IsKeyPressed(Keys.Right)) HandleControl(ClientControl.MenuNext);
-            if (Input.IsKeyPressed(Keys.Enter) || Input.IsKeyPressed(Keys.Space)) HandleControl(ClientControl.MenuConfirm);
-            if (Input.IsKeyPressed(Keys.Escape)) HandleControl(newCareerConfirmation ? ClientControl.MenuBack : ClientControl.Exit);
+            if (Pressed(GameInputAction.MenuPrevious)) HandleControl(ClientControl.MenuPrevious);
+            if (Pressed(GameInputAction.MenuNext)) HandleControl(ClientControl.MenuNext);
+            if (Pressed(GameInputAction.MenuConfirm)) HandleControl(ClientControl.MenuConfirm);
+            if (Pressed(GameInputAction.MenuBack)) HandleControl(NewCareerConfirmationVisible ? ClientControl.MenuBack : ClientControl.Exit);
+            if (!NewCareerConfirmationVisible && Pressed(GameInputAction.SettingsToggle)) HandleControl(ClientControl.ToggleSettings);
             PollDriverControl(gameTime.Elapsed.TotalSeconds);
             base.Update(gameTime);
             return;
         }
 
-        if (!world.IntroComplete)
+        if (BriefingVisible)
         {
             HandleIntroPointer();
-            if (Input.IsKeyPressed(Keys.Q)) HandleControl(ClientControl.PreviousGuidance);
-            if (Input.IsKeyPressed(Keys.E)) HandleControl(ClientControl.NextGuidance);
-            if (Input.IsKeyPressed(Keys.Enter) || Input.IsKeyPressed(Keys.Space)) HandleControl(ClientControl.IntroNext);
-            if (Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.Exit);
+            if (Pressed(GameInputAction.IntroPrevious)) HandleControl(ClientControl.PreviousGuidance);
+            if (Pressed(GameInputAction.IntroNext)) HandleControl(ClientControl.NextGuidance);
+            if (Pressed(GameInputAction.IntroConfirm)) HandleControl(ClientControl.IntroNext);
+            if (Pressed(GameInputAction.IntroExit)) HandleControl(ClientControl.Exit);
             PollDriverControl(gameTime.Elapsed.TotalSeconds);
             base.Update(gameTime);
             return;
         }
 
-        if (helpVisible)
+        if (HelpVisible)
         {
             if (LeftClickIn(802, 74, 116, 38)) HandleControl(ClientControl.ToggleHelp);
-            if (Input.IsKeyPressed(Keys.F12) || Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.ToggleHelp);
+            if (Pressed(GameInputAction.HelpClose)) HandleControl(ClientControl.ToggleHelp);
             PollDriverControl(gameTime.Elapsed.TotalSeconds);
             base.Update(gameTime);
             return;
         }
 
-        if (questJournalVisible)
+        if (QuestJournalVisible)
         {
             HandleJournalPointer();
-            if (Input.IsKeyPressed(Keys.J)) HandleControl(ClientControl.ToggleQuestJournal);
-            if (Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.JournalBack);
-            if (Input.IsKeyPressed(Keys.Up) || Input.IsKeyPressed(Keys.Q)) HandleControl(ClientControl.JournalPrevious);
-            if (Input.IsKeyPressed(Keys.Down) || Input.IsKeyPressed(Keys.E)) HandleControl(ClientControl.JournalNext);
-            if (Input.IsKeyPressed(Keys.Enter) || Input.IsKeyPressed(Keys.Space)) HandleControl(ClientControl.ToggleQuestDetail);
+            if (Pressed(GameInputAction.JournalToggle)) HandleControl(ClientControl.ToggleQuestJournal);
+            if (Pressed(GameInputAction.JournalBack)) HandleControl(ClientControl.JournalBack);
+            if (Pressed(GameInputAction.JournalPrevious)) HandleControl(ClientControl.JournalPrevious);
+            if (Pressed(GameInputAction.JournalNext)) HandleControl(ClientControl.JournalNext);
+            if (Pressed(GameInputAction.JournalDetail)) HandleControl(ClientControl.ToggleQuestDetail);
             PollDriverControl(gameTime.Elapsed.TotalSeconds);
             base.Update(gameTime);
             return;
         }
 
-        if (shiftReportVisible)
+        if (ShiftReportVisible)
         {
             if (LeftClickIn(784, 526, 148, 28)) HandleControl(ClientControl.ToggleShiftReport);
-            if (Input.IsKeyPressed(Keys.K) || Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.ToggleShiftReport);
+            if (Pressed(GameInputAction.ShiftReportClose)) HandleControl(ClientControl.ToggleShiftReport);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
+        if (ProcessEditorVisible)
+        {
+            if (Pressed(GameInputAction.ProcessEditorPrevious)) HandleControl(ClientControl.ProcessEditorPrevious);
+            if (Pressed(GameInputAction.ProcessEditorNext)) HandleControl(ClientControl.ProcessEditorNext);
+            if (Pressed(GameInputAction.ProcessEditorMoveUp)) HandleControl(ClientControl.ProcessEditorMoveUp);
+            if (Pressed(GameInputAction.ProcessEditorMoveDown)) HandleControl(ClientControl.ProcessEditorMoveDown);
+            if (Pressed(GameInputAction.ProcessEditorToggleAssignment)) HandleControl(ClientControl.ProcessEditorToggleAssignment);
+            if (Pressed(GameInputAction.ProcessEditorNextRouting)) HandleControl(ClientControl.ProcessEditorNextRouting);
+            if (Pressed(GameInputAction.ProcessEditorApply)) HandleControl(ClientControl.ProcessEditorApply);
+            if (Pressed(GameInputAction.ProcessEditorClose)) HandleControl(ClientControl.ProcessEditorClose);
+            PollDriverControl(gameTime.Elapsed.TotalSeconds);
+            base.Update(gameTime);
+            return;
+        }
+
+        if (AutomationEditorVisible)
+        {
+            if (Pressed(GameInputAction.AutomationEditorPrevious)) HandleControl(ClientControl.AutomationEditorPrevious);
+            if (Pressed(GameInputAction.AutomationEditorNext)) HandleControl(ClientControl.AutomationEditorNext);
+            if (Pressed(GameInputAction.AutomationEditorToggleValue)) HandleControl(ClientControl.AutomationEditorToggleValue);
+            if (Pressed(GameInputAction.AutomationEditorApply)) HandleControl(ClientControl.AutomationEditorApply);
+            if (Pressed(GameInputAction.AutomationEditorSaveBaseline)) HandleControl(ClientControl.AutomationEditorSaveBaseline);
+            if (Pressed(GameInputAction.AutomationEditorSaveVariant)) HandleControl(ClientControl.AutomationEditorSaveVariant);
+            if (Pressed(GameInputAction.AutomationEditorRunComparison)) HandleControl(ClientControl.AutomationEditorRunComparison);
+            if (Pressed(GameInputAction.AutomationEditorClose)) HandleControl(ClientControl.AutomationEditorClose);
             PollDriverControl(gameTime.Elapsed.TotalSeconds);
             base.Update(gameTime);
             return;
@@ -222,9 +316,22 @@ public sealed class DishStationGame : Game
             }
         }
 
-        if (Input.IsKeyPressed(Keys.Q)) HandleControl(placementMode ? ClientControl.PreviousPlacementFixture : ClientControl.PreviousWorkstation);
-        if (Input.IsKeyPressed(Keys.E)) HandleControl(placementMode ? ClientControl.NextPlacementFixture : ClientControl.NextWorkstation);
-        if (Input.IsKeyPressed(Keys.Space)) HandleControl(ClientControl.ContextWork);
+        if (Pressed(placementMode ? GameInputAction.PlacementPrevious : GameInputAction.PreviousTarget))
+            HandleControl(placementMode ? ClientControl.PreviousPlacementFixture : ClientControl.PreviousWorkstation);
+        if (placementMode)
+        {
+            if (Pressed(GameInputAction.PlacementNext)) HandleControl(ClientControl.NextPlacementFixture);
+        }
+        else
+        {
+            var interactionActions = GameplayInteractionActions.None;
+            if (Pressed(GameInputAction.Interact)) interactionActions |= GameplayInteractionActions.Interact;
+            if (Pressed(GameInputAction.Inspect)) interactionActions |= GameplayInteractionActions.Inspect;
+            var interactionIntent = GameplayInteractionInput.Resolve(interactionActions);
+            if ((interactionIntent & GameplayInteractionIntent.Interact) != 0) HandleControl(ClientControl.ContextInteract);
+            if ((interactionIntent & GameplayInteractionIntent.Inspect) != 0) HandleControl(ClientControl.ContextInspect);
+        }
+        if (Pressed(GameInputAction.ContextInteract)) HandleControl(ClientControl.ContextInteract);
         if (HandleHudPointer())
         {
             PollDriverControl(gameTime.Elapsed.TotalSeconds);
@@ -232,53 +339,55 @@ public sealed class DishStationGame : Game
             return;
         }
         SelectWorkstationFromMouse();
-        if (Input.IsKeyPressed(Keys.D1)) HandleControl(ClientControl.Scrape);
-        if (Input.IsKeyPressed(Keys.D2)) HandleControl(ClientControl.Rack);
-        if (Input.IsKeyPressed(Keys.D3)) HandleControl(ClientControl.StartWasher);
-        if (Input.IsKeyPressed(Keys.D4)) HandleControl(ClientControl.Unload);
-        if (Input.IsKeyPressed(Keys.D5)) HandleControl(ClientControl.DryAndRestock);
-        if (Input.IsKeyPressed(Keys.Tab)) HandleControl(ClientControl.NextDish);
-        if (Input.IsKeyPressed(Keys.R)) HandleControl(ClientControl.ToggleRush);
-        if (Input.IsKeyPressed(Keys.B)) HandleControl(ClientControl.ConfirmBottleneck);
-        if (Input.IsKeyPressed(Keys.G)) HandleControl(ClientControl.ConfigureFlowCell);
-        if (Input.IsKeyPressed(Keys.N)) HandleControl(ClientControl.ToggleNewHire);
-        if (Input.IsKeyPressed(Keys.T)) HandleControl(ClientControl.TrainHappyPath);
-        if (Input.IsKeyPressed(Keys.Y)) HandleControl(ClientControl.TrainRushPriority);
-        if (Input.IsKeyPressed(Keys.U)) HandleControl(ClientControl.TrainRareTray);
-        if (Input.IsKeyPressed(Keys.A)) HandleControl(ClientControl.EnableReportedAutomation);
-        if (Input.IsKeyPressed(Keys.I)) HandleControl(ClientControl.InspectIncident);
-        if (Input.IsKeyPressed(Keys.P)) HandleControl(ClientControl.ReplayIncident);
-        if (Input.IsKeyPressed(Keys.D)) HandleControl(ClientControl.ToggleIncidentLens);
-        if (Input.IsKeyPressed(Keys.V)) HandleControl(ClientControl.NextLens);
-        if (Input.IsKeyPressed(Keys.S)) HandleControl(ClientControl.EnableSafeAutomation);
-        if (Input.IsKeyPressed(Keys.W)) HandleControl(ClientControl.StartShiftTrial);
-        if (Input.IsKeyPressed(Keys.L)) HandleControl(ClientControl.ToggleProcessLens);
-        if (Input.IsKeyPressed(Keys.F1)) HandleControl(ClientControl.ToggleGodMode);
-        if (Input.IsKeyPressed(Keys.F2)) HandleControl(ClientControl.GodAddDirty);
-        if (Input.IsKeyPressed(Keys.F3)) HandleControl(ClientControl.GodSetCleanSupply);
-        if (Input.IsKeyPressed(Keys.F4)) HandleControl(ClientControl.GodReset);
-        if (Input.IsKeyPressed(Keys.F5)) HandleControl(ClientControl.GodTogglePause);
-        if (Input.IsKeyPressed(Keys.F6)) HandleControl(ClientControl.GodStep);
-        if (Input.IsKeyPressed(Keys.F7)) HandleControl(ClientControl.GodStickyReady);
-        if (Input.IsKeyPressed(Keys.F8)) HandleControl(ClientControl.GodToggleLayout);
-        if (Input.IsKeyPressed(Keys.F9)) HandleControl(ClientControl.GodToggleBenchmark);
-        if (Input.IsKeyPressed(Keys.F10)) HandleControl(ClientControl.GodQuickSave);
-        if (Input.IsKeyPressed(Keys.F11)) HandleControl(ClientControl.GodQuickLoad);
-        if (Input.IsKeyPressed(Keys.M)) HandleControl(ClientControl.TogglePlacementMode);
-        if (Input.IsKeyPressed(Keys.Enter)) HandleControl(ClientControl.ConfirmPlacement);
-        if (Input.IsKeyPressed(Keys.Back)) HandleControl(ClientControl.UndoPlacement);
-        if (Input.IsKeyPressed(Keys.H)) HandleControl(ClientControl.ResetSandboxLayout);
-        if (Input.IsKeyPressed(Keys.Left)) HandleControl(placementMode ? ClientControl.PlacementLeft : ClientControl.CameraPanLeft);
-        if (Input.IsKeyPressed(Keys.Right)) HandleControl(placementMode ? ClientControl.PlacementRight : ClientControl.CameraPanRight);
-        if (Input.IsKeyPressed(Keys.Up)) HandleControl(placementMode ? ClientControl.PlacementUp : ClientControl.CameraPanUp);
-        if (Input.IsKeyPressed(Keys.Down)) HandleControl(placementMode ? ClientControl.PlacementDown : ClientControl.CameraPanDown);
-        if (Input.IsKeyPressed(Keys.Z)) HandleControl(ClientControl.CameraZoomIn);
-        if (Input.IsKeyPressed(Keys.X)) HandleControl(ClientControl.CameraZoomOut);
-        if (Input.IsKeyPressed(Keys.C)) HandleControl(ClientControl.CameraReset);
-        if (Input.IsKeyPressed(Keys.J)) HandleControl(ClientControl.ToggleQuestJournal);
-        if (Input.IsKeyPressed(Keys.K)) HandleControl(ClientControl.ToggleShiftReport);
-        if (Input.IsKeyPressed(Keys.F12)) HandleControl(ClientControl.ToggleHelp);
-        if (Input.IsKeyPressed(Keys.Escape)) HandleControl(ClientControl.Exit);
+        HandleMouseCameraInput();
+        HandleDirectMovement(gameTime.Elapsed.TotalSeconds);
+        if (Pressed(GameInputAction.DirectScrape)) HandleControl(ClientControl.Scrape);
+        if (Pressed(GameInputAction.DirectRack)) HandleControl(ClientControl.Rack);
+        if (Pressed(GameInputAction.DirectStartWasher)) HandleControl(ClientControl.StartWasher);
+        if (Pressed(GameInputAction.DirectUnload)) HandleControl(ClientControl.Unload);
+        if (Pressed(GameInputAction.DirectDryAndRestock)) HandleControl(ClientControl.DryAndRestock);
+        if (Pressed(GameInputAction.NextDish)) HandleControl(ClientControl.NextDish);
+        if (Pressed(GameInputAction.ToggleRush)) HandleControl(ClientControl.ToggleRush);
+        if (Pressed(GameInputAction.ConfirmBottleneck)) HandleControl(ClientControl.ConfirmBottleneck);
+        if (Pressed(GameInputAction.ConfigureFlowCell)) HandleControl(ClientControl.ConfigureFlowCell);
+        if (Pressed(GameInputAction.ToggleNewHire)) HandleControl(ClientControl.ToggleNewHire);
+        if (Pressed(GameInputAction.TrainHappyPath)) HandleControl(ClientControl.TrainHappyPath);
+        if (Pressed(GameInputAction.TrainRushPriority)) HandleControl(ClientControl.TrainRushPriority);
+        if (Pressed(GameInputAction.TrainRareTray)) HandleControl(ClientControl.TrainRareTray);
+        if (Pressed(GameInputAction.InspectIncident)) HandleControl(ClientControl.InspectIncident);
+        if (Pressed(GameInputAction.ReplayIncident)) HandleControl(ClientControl.ReplayIncident);
+        if (Pressed(GameInputAction.NextLens)) HandleControl(ClientControl.NextLens);
+        if (Pressed(GameInputAction.ToggleProcessLens)) HandleControl(ClientControl.ToggleProcessLens);
+        if (!placementMode && Pressed(GameInputAction.ProcessCaptureToggle)) HandleControl(ClientControl.ToggleProcessCapture);
+        if (!placementMode && Pressed(GameInputAction.ProcessEditorToggle)) HandleControl(ClientControl.ToggleProcessEditor);
+        if (!placementMode && Pressed(GameInputAction.AutomationEditorToggle)) HandleControl(ClientControl.ToggleAutomationEditor);
+        if (Pressed(GameInputAction.DeveloperToggle)) HandleControl(ClientControl.ToggleGodMode);
+        if (Pressed(GameInputAction.DeveloperAddDirty)) HandleControl(ClientControl.GodAddDirty);
+        if (Pressed(GameInputAction.DeveloperSetCleanSupply)) HandleControl(ClientControl.GodSetCleanSupply);
+        if (Pressed(GameInputAction.DeveloperReset)) HandleControl(ClientControl.GodReset);
+        if (Pressed(GameInputAction.DeveloperTogglePause)) HandleControl(ClientControl.GodTogglePause);
+        if (Pressed(GameInputAction.DeveloperStep)) HandleControl(ClientControl.GodStep);
+        if (Pressed(GameInputAction.DeveloperStickyReady)) HandleControl(ClientControl.GodStickyReady);
+        if (Pressed(GameInputAction.DeveloperToggleLayout)) HandleControl(ClientControl.GodToggleLayout);
+        if (Pressed(GameInputAction.DeveloperToggleBenchmark)) HandleControl(ClientControl.GodToggleBenchmark);
+        if (Pressed(GameInputAction.DeveloperQuickSave)) HandleControl(ClientControl.GodQuickSave);
+        if (Pressed(GameInputAction.DeveloperQuickLoad)) HandleControl(ClientControl.GodQuickLoad);
+        if (Pressed(GameInputAction.TogglePlacement)) HandleControl(ClientControl.TogglePlacementMode);
+        if (Pressed(GameInputAction.PlacementConfirm)) HandleControl(ClientControl.ConfirmPlacement);
+        if (Pressed(GameInputAction.PlacementUndo)) HandleControl(ClientControl.UndoPlacement);
+        if (Pressed(GameInputAction.PlacementReset)) HandleControl(ClientControl.ResetSandboxLayout);
+        if (Pressed(placementMode ? GameInputAction.PlacementLeft : GameInputAction.CameraPanLeft)) HandleControl(placementMode ? ClientControl.PlacementLeft : ClientControl.CameraPanLeft);
+        if (Pressed(placementMode ? GameInputAction.PlacementRight : GameInputAction.CameraPanRight)) HandleControl(placementMode ? ClientControl.PlacementRight : ClientControl.CameraPanRight);
+        if (Pressed(placementMode ? GameInputAction.PlacementUp : GameInputAction.CameraPanUp)) HandleControl(placementMode ? ClientControl.PlacementUp : ClientControl.CameraPanUp);
+        if (Pressed(placementMode ? GameInputAction.PlacementDown : GameInputAction.CameraPanDown)) HandleControl(placementMode ? ClientControl.PlacementDown : ClientControl.CameraPanDown);
+        if (Pressed(GameInputAction.CameraZoomIn)) HandleControl(ClientControl.CameraZoomIn);
+        if (Pressed(GameInputAction.CameraZoomOut)) HandleControl(ClientControl.CameraZoomOut);
+        if (Pressed(GameInputAction.CameraReset)) HandleControl(ClientControl.CameraReset);
+        if (Pressed(GameInputAction.JournalToggle)) HandleControl(ClientControl.ToggleQuestJournal);
+        if (Pressed(GameInputAction.ShiftReportToggle)) HandleControl(ClientControl.ToggleShiftReport);
+        if (Pressed(GameInputAction.SettingsToggle)) HandleControl(ClientControl.ToggleSettings);
+        if (Pressed(GameInputAction.HelpClose)) HandleControl(ClientControl.ToggleHelp);
+        if (Pressed(GameInputAction.Exit)) HandleControl(ClientControl.Exit);
         PollDriverControl(gameTime.Elapsed.TotalSeconds);
 
         base.Update(gameTime);
@@ -286,16 +395,24 @@ public sealed class DishStationGame : Game
 
     protected override void Draw(GameTime gameTime)
     {
+        var snapshot = world.Snapshot();
+        nativeRoom?.Synchronize(snapshot.Layout.Placements);
+        nativeRoom?.UpdateCamera(camera);
         base.Draw(gameTime);
         GraphicsContext.CommandList.SetRenderTargetAndViewport(null, GraphicsDevice.Presenter.BackBuffer);
-        GraphicsContext.CommandList.Clear(GraphicsDevice.Presenter.BackBuffer, new Color4(0.025f, 0.04f, 0.055f, 1f));
-        var snapshot = world.Snapshot();
+        if (nativeRoom is null)
+        {
+            GraphicsContext.CommandList.Clear(GraphicsDevice.Presenter.BackBuffer, new Color4(0.025f, 0.04f, 0.055f, 1f));
+        }
         DrawRoom(snapshot);
     }
 
     protected override void Destroy()
     {
+        audioPresenter?.Dispose();
+        nativeRoom?.Dispose();
         diamond?.Dispose();
+        washerProjection?.Dispose();
         pixel?.Dispose();
         foreach (var icon in interactionIcons.Values) icon.Dispose();
         spriteBatch?.Dispose();
@@ -303,6 +420,78 @@ public sealed class DishStationGame : Game
     }
 
     private void Perform(DishAction action) => Execute(new PerformDishActionCommand(world.Tick, action, selectedKind));
+
+    private void HandleDirectMovement(double elapsedSeconds)
+    {
+        if (placementMode)
+        {
+            activeMovementInput = DirectMovementInput.None;
+            movementRepeatRemaining = 0;
+            clickMovement.Cancel();
+            clickMovementRepeatRemaining = 0;
+            return;
+        }
+
+        var movementInput = DirectMovementInput.None;
+        if (Down(GameInputAction.MoveAway)) movementInput |= DirectMovementInput.Away;
+        if (Down(GameInputAction.MoveLeft)) movementInput |= DirectMovementInput.Left;
+        if (Down(GameInputAction.MoveToward)) movementInput |= DirectMovementInput.Toward;
+        if (Down(GameInputAction.MoveRight)) movementInput |= DirectMovementInput.Right;
+
+        movementRepeatRemaining -= elapsedSeconds;
+        if (movementInput == DirectMovementInput.None)
+        {
+            activeMovementInput = movementInput;
+            movementRepeatRemaining = 0;
+            clickMovementRepeatRemaining -= elapsedSeconds;
+            if (clickMovementRepeatRemaining <= 0 &&
+                clickMovement.TakeNext(world.PlayerCell, world.Placements, world.Tick) is { } clickCommand)
+            {
+                if (!Execute(clickCommand)) clickMovement.Cancel();
+                clickMovementRepeatRemaining = 0.12;
+            }
+            return;
+        }
+
+        clickMovement.Cancel();
+        clickMovementRepeatRemaining = 0;
+        if (movementInput == activeMovementInput && movementRepeatRemaining > 0) return;
+        activeMovementInput = movementInput;
+        movementRepeatRemaining = 0.12;
+        if (GameplayMovementInput.CreateCommand(movementInput, world.PlayerCell, world.Tick) is { } command) Execute(command);
+    }
+
+    private bool Pressed(GameInputAction action)
+    {
+        if ((InputActionCatalog.ContextOf(action) & InputActionContext.Developer) != 0 && !DeveloperToolsAvailable) return false;
+        foreach (var key in inputBindings.KeysFor(action))
+            if (Input.IsKeyPressed(StrideKeyboardAdapter.ToStrideKey(key))) return true;
+        return false;
+    }
+
+    private bool Down(GameInputAction action)
+    {
+        if ((InputActionCatalog.ContextOf(action) & InputActionContext.Developer) != 0 && !DeveloperToolsAvailable) return false;
+        foreach (var key in inputBindings.KeysFor(action))
+            if (Input.IsKeyDown(StrideKeyboardAdapter.ToStrideKey(key))) return true;
+        return false;
+    }
+
+    private string Binding(GameInputAction action) => inputBindings.DisplayName(action);
+
+    private string PrimaryBinding(GameInputAction action) => inputBindings.PrimaryDisplayName(action);
+
+    private string MovementBindingLabel() => string.Join(" ",
+    [
+        PrimaryBinding(GameInputAction.MoveAway),
+        PrimaryBinding(GameInputAction.MoveLeft),
+        PrimaryBinding(GameInputAction.MoveToward),
+        PrimaryBinding(GameInputAction.MoveRight),
+    ]);
+
+    private string DeveloperBindingLegend(bool vertical = false) => vertical
+        ? $"{PrimaryBinding(GameInputAction.DeveloperAddDirty)} ADD DIRTY   {PrimaryBinding(GameInputAction.DeveloperSetCleanSupply)} CLEAN\n{PrimaryBinding(GameInputAction.DeveloperReset)} RESET       {PrimaryBinding(GameInputAction.DeveloperTogglePause)} PAUSE\n{PrimaryBinding(GameInputAction.DeveloperStep)} STEP        {PrimaryBinding(GameInputAction.DeveloperStickyReady)} STICKY\n{PrimaryBinding(GameInputAction.DeveloperToggleLayout)} LAYOUT      {PrimaryBinding(GameInputAction.DeveloperToggleBenchmark)} 100K\n{PrimaryBinding(GameInputAction.DeveloperQuickSave)} SAVE       {PrimaryBinding(GameInputAction.DeveloperQuickLoad)} RESTORE"
+        : $"{PrimaryBinding(GameInputAction.DeveloperAddDirty)} DIRTY  {PrimaryBinding(GameInputAction.DeveloperSetCleanSupply)} CLEAN  {PrimaryBinding(GameInputAction.DeveloperReset)} RESET  {PrimaryBinding(GameInputAction.DeveloperTogglePause)} PAUSE  {PrimaryBinding(GameInputAction.DeveloperStep)} STEP\n{PrimaryBinding(GameInputAction.DeveloperStickyReady)} FAULT  {PrimaryBinding(GameInputAction.DeveloperToggleLayout)} LAYOUT  {PrimaryBinding(GameInputAction.DeveloperToggleBenchmark)} 100K  {PrimaryBinding(GameInputAction.DeveloperQuickSave)} SAVE  {PrimaryBinding(GameInputAction.DeveloperQuickLoad)} LOAD";
 
     private void HandleControl(ClientControl control)
     {
@@ -312,52 +501,61 @@ public sealed class DishStationGame : Game
             case ClientControl.MenuNext: SelectStartMenu(1); break;
             case ClientControl.MenuConfirm: ConfirmStartMenu(); break;
             case ClientControl.MenuBack:
-                newCareerConfirmation = false;
+                screenRouter.DismissNewCareerConfirmation();
                 UpdateWindowTitle();
+                break;
+            case ClientControl.ToggleSettings:
+                screenRouter.ToggleSettings();
+                settingsStatus = "READY";
+                UpdateWindowTitle();
+                break;
+            case ClientControl.SettingsPrevious: SelectSetting(-1); break;
+            case ClientControl.SettingsNext: SelectSetting(1); break;
+            case ClientControl.SettingsDecrease: AdjustSetting(-1); break;
+            case ClientControl.SettingsIncrease: AdjustSetting(1); break;
+            case ClientControl.SettingsConfirm: ConfirmSetting(); break;
+            case ClientControl.SettingsReset:
+                clientSettings = ClientSettings.Default;
+                inputBindings = clientSettings.InputBindings;
+                SaveClientSettings("DEFAULTS RESTORED");
                 break;
             case ClientControl.IntroNext: AdvanceIntro(); break;
             case ClientControl.PreviousGuidance: SelectGuidance(-1); break;
             case ClientControl.NextGuidance: SelectGuidance(1); break;
             case ClientControl.ToggleQuestJournal:
-                questJournalVisible = !questJournalVisible;
-                questDetailVisible = false;
-                if (questJournalVisible)
-                    selectedJournalQuest = (int)(world.Snapshot().Progression.ActiveQuest ?? DishStationQuestId.OwnTheShift);
-                commandFeedback = questJournalVisible ? "Quest journal opened." : "Quest journal closed.";
+                var journalOpened = screenRouter.ToggleJournal();
+                if (journalOpened)
+                    selectedJournalQuest = DishStationFirstHoursContent.Narrative.IndexOf(
+                        world.Snapshot().Progression.ActiveQuest ?? DishStationQuestId.OwnTheShift);
+                commandFeedback = journalOpened ? "Quest journal opened." : "Quest journal closed.";
                 UpdateWindowTitle();
                 break;
             case ClientControl.ToggleHelp:
-                helpVisible = !helpVisible;
-                questJournalVisible = false;
-                questDetailVisible = false;
-                shiftReportVisible = false;
-                if (helpVisible) RecordHandbookVisit();
-                commandFeedback = helpVisible ? "Controls and current opportunities opened." : "Help closed.";
+                var helpOpened = screenRouter.ToggleHelp();
+                if (helpOpened) RecordHandbookVisit();
+                commandFeedback = helpOpened ? "Controls and current opportunities opened." : "Help closed.";
                 UpdateWindowTitle();
                 break;
             case ClientControl.JournalPrevious: SelectJournalQuest(-1); break;
             case ClientControl.JournalNext: SelectJournalQuest(1); break;
             case ClientControl.ToggleQuestDetail:
-                questDetailVisible = !questDetailVisible;
+                screenRouter.ToggleJournalDetail();
                 UpdateWindowTitle();
                 break;
             case ClientControl.JournalBack:
-                if (questDetailVisible) questDetailVisible = false;
-                else questJournalVisible = false;
+                screenRouter.BackFromJournal();
                 UpdateWindowTitle();
                 break;
             case ClientControl.ToggleShiftReport:
-                if (shiftReportVisible)
+                if (ShiftReportVisible)
                 {
-                    shiftReportVisible = false;
+                    screenRouter.ToggleShiftReport();
                     commandFeedback = "Shift report closed.";
                 }
                 else if (world.Snapshot().Progression.IsUnlocked(CareerCapability.ShiftScorecard))
                 {
-                    questJournalVisible = false;
-                    questDetailVisible = false;
                     activeLens = SystemLens.Process;
-                    shiftReportVisible = true;
+                    screenRouter.ToggleShiftReport();
                     commandFeedback = "Shift report opened.";
                 }
                 else
@@ -370,10 +568,13 @@ public sealed class DishStationGame : Game
             case ClientControl.PreviousWorkstation: SelectWorkstation(-1); break;
             case ClientControl.NextWorkstation: SelectWorkstation(1); break;
             case ClientControl.ContextWork:
-                var workCell = world.Placements.At((DishStationFixture)selectedWorkstation);
-                if (world.PlayerCell != workCell) Execute(new MovePlayerCommand(world.Tick, workCell));
-                else Perform(Workstations[selectedWorkstation].Action);
+                var selectedFixture = (DishStationFixture)selectedWorkstation;
+                var interactionPort = world.Topology.InteractionPort(selectedFixture);
+                if (world.PlayerCell != interactionPort) RequestClickMovement(world.Placements.At(selectedFixture), selectedFixture.ToString());
+                else PerformContextInteraction();
                 break;
+            case ClientControl.ContextInteract: PerformContextInteraction(); break;
+            case ClientControl.ContextInspect: InspectContextInteraction(); break;
             case ClientControl.Scrape: Perform(DishAction.Scrape); break;
             case ClientControl.Rack: Perform(DishAction.Rack); break;
             case ClientControl.StartWasher: Perform(DishAction.StartWasher); break;
@@ -398,7 +599,6 @@ public sealed class DishStationGame : Game
             case ClientControl.TrainHappyPath: Execute(new TrainNewHireCommand(world.Tick, DishProcessSpecification.HappyPath)); break;
             case ClientControl.TrainRushPriority: Execute(new TrainNewHireCommand(world.Tick, DishProcessSpecification.RushAware)); break;
             case ClientControl.TrainRareTray: Execute(new TrainNewHireCommand(world.Tick, DishProcessSpecification.FullyDocumented)); break;
-            case ClientControl.EnableReportedAutomation: Execute(new ConfigureWasherAutomationCommand(world.Tick, WasherAutomationPolicy.ReportedReadyOnly)); break;
             case ClientControl.InspectIncident:
                 Execute(new InspectAutomationIncidentCommand(world.Tick));
                 if (world.Snapshot().Automation.Incident.Recorded) activeLens = SystemLens.Runtime;
@@ -412,7 +612,6 @@ public sealed class DishStationGame : Game
                 UpdateWindowTitle();
                 break;
             case ClientControl.NextLens: SelectNextLens(); break;
-            case ClientControl.EnableSafeAutomation: Execute(new ConfigureWasherAutomationCommand(world.Tick, WasherAutomationPolicy.CorroboratedReady)); break;
             case ClientControl.StartShiftTrial: Execute(new StartShiftTrialCommand(world.Tick)); break;
             case ClientControl.ToggleProcessLens:
                 if (world.TutorialStage == DishTutorialStage.InspectShortage)
@@ -425,6 +624,43 @@ public sealed class DishStationGame : Game
                     activeLens = activeLens == SystemLens.Process ? SystemLens.Reality : SystemLens.Process;
                     UpdateWindowTitle();
                 }
+                break;
+            case ClientControl.ToggleProcessCapture: ToggleProcessCapture(); break;
+            case ClientControl.ToggleProcessEditor: ToggleProcessEditor(); break;
+            case ClientControl.ProcessEditorPrevious: SelectProcessEditorStep(-1); break;
+            case ClientControl.ProcessEditorNext: SelectProcessEditorStep(1); break;
+            case ClientControl.ProcessEditorMoveUp: MoveSelectedProcessStep(-1); break;
+            case ClientControl.ProcessEditorMoveDown: MoveSelectedProcessStep(1); break;
+            case ClientControl.ProcessEditorToggleAssignment: ToggleSelectedProcessAssignment(); break;
+            case ClientControl.ProcessEditorNextRouting: SelectNextProcessRouting(); break;
+            case ClientControl.ProcessEditorApply:
+                if (Execute(new ApplyProcessEditCommand(world.Tick))) screenRouter.ToggleProcessEditor();
+                break;
+            case ClientControl.ProcessEditorClose:
+                if (world.Snapshot().ProcessCapture.ActiveEdit is not null)
+                    Execute(new DiscardProcessEditCommand(world.Tick));
+                screenRouter.ToggleProcessEditor();
+                break;
+            case ClientControl.ToggleAutomationEditor: ToggleAutomationEditor(); break;
+            case ClientControl.AutomationEditorPrevious: SelectAutomationRuleRow(-1); break;
+            case ClientControl.AutomationEditorNext: SelectAutomationRuleRow(1); break;
+            case ClientControl.AutomationEditorToggleValue: ToggleSelectedAutomationRuleValue(); break;
+            case ClientControl.AutomationEditorApply:
+                if (Execute(new ApplyAutomationRuleEditCommand(world.Tick))) screenRouter.ToggleAutomationEditor();
+                break;
+            case ClientControl.AutomationEditorSaveBaseline:
+                Execute(new SaveAutomationRulePresetCommand(world.Tick, AutomationPresetSlot.Baseline));
+                break;
+            case ClientControl.AutomationEditorSaveVariant:
+                Execute(new SaveAutomationRulePresetCommand(world.Tick, AutomationPresetSlot.Variant));
+                break;
+            case ClientControl.AutomationEditorRunComparison:
+                Execute(new RunAutomationRuleComparisonCommand(world.Tick));
+                break;
+            case ClientControl.AutomationEditorClose:
+                if (world.Snapshot().Automation.ActiveEdit is not null)
+                    Execute(new DiscardAutomationRuleEditCommand(world.Tick));
+                screenRouter.ToggleAutomationEditor();
                 break;
             case ClientControl.ToggleGodMode:
                 if (!DeveloperToolsAvailable)
@@ -476,7 +712,7 @@ public sealed class DishStationGame : Game
             case ClientControl.CameraZoomIn: ZoomCamera(0.1f); break;
             case ClientControl.CameraZoomOut: ZoomCamera(-0.1f); break;
             case ClientControl.CameraReset:
-                camera = IsometricCamera.Default;
+                camera = GameplayCameraInput.Recenter();
                 commandFeedback = "Camera centered on the sandbox floor.";
                 UpdateWindowTitle();
                 break;
@@ -493,7 +729,7 @@ public sealed class DishStationGame : Game
                     placementPreview = world.Placements.At(placementFixture);
                 }
                 commandFeedback = placementMode
-                    ? "Placement mode: Q/E fixture, click or Enter to place, Backspace undo, H reset."
+                    ? $"Placement mode: {Binding(GameInputAction.PlacementPrevious)}/{Binding(GameInputAction.PlacementNext)} fixture, click or {Binding(GameInputAction.PlacementConfirm)} to place, {Binding(GameInputAction.PlacementUndo)} undo, {Binding(GameInputAction.PlacementReset)} reset."
                     : "Placement mode closed.";
                 UpdateWindowTitle();
                 break;
@@ -539,12 +775,131 @@ public sealed class DishStationGame : Game
         }
     }
 
-    private void Execute(ISimulationCommand command)
+    private void ToggleProcessCapture()
+    {
+        var capture = world.Snapshot().ProcessCapture;
+        if (capture.Active is null)
+            Execute(new StartProcessCaptureCommand(world.Tick, "Captured dish process"));
+        else
+            Execute(new CompleteProcessCaptureCommand(world.Tick));
+    }
+
+    private void ToggleProcessEditor()
+    {
+        var capture = world.Snapshot().ProcessCapture;
+        if (ProcessEditorVisible)
+        {
+            if (capture.ActiveEdit is not null) Execute(new DiscardProcessEditCommand(world.Tick));
+            screenRouter.ToggleProcessEditor();
+            return;
+        }
+        var artifact = capture.Artifacts.LastOrDefault();
+        if (artifact is null)
+        {
+            commandFeedback = $"Capture a process with {Binding(GameInputAction.ProcessCaptureToggle)} before opening the editor.";
+            return;
+        }
+        if (!Execute(new BeginProcessEditCommand(world.Tick, artifact.Id))) return;
+        selectedProcessStep = 0;
+        screenRouter.ToggleProcessEditor();
+    }
+
+    private void SelectProcessEditorStep(int offset)
+    {
+        var count = world.Snapshot().ProcessCapture.ActiveEdit?.Steps.Length ?? 0;
+        if (count == 0) return;
+        selectedProcessStep = (selectedProcessStep + offset + count) % count;
+    }
+
+    private void ToggleAutomationEditor()
+    {
+        var automation = world.Snapshot().Automation;
+        if (AutomationEditorVisible)
+        {
+            if (automation.ActiveEdit is not null) Execute(new DiscardAutomationRuleEditCommand(world.Tick));
+            screenRouter.ToggleAutomationEditor();
+            return;
+        }
+        if (!Execute(new BeginAutomationRuleEditCommand(world.Tick))) return;
+        selectedAutomationRuleRow = 0;
+        screenRouter.ToggleAutomationEditor();
+    }
+
+    private void SelectAutomationRuleRow(int offset)
+    {
+        selectedAutomationRuleRow = (selectedAutomationRuleRow + offset + AutomationRuleEditorPresenter.RowCount) %
+                                    AutomationRuleEditorPresenter.RowCount;
+    }
+
+    private void ToggleSelectedAutomationRuleValue()
+    {
+        var draft = world.Snapshot().Automation.ActiveEdit;
+        if (draft is null) return;
+        switch (selectedAutomationRuleRow)
+        {
+            case 0:
+                Execute(new SetAutomationRuleEnabledCommand(world.Tick, !draft.Enabled));
+                break;
+            case 1:
+                Execute(new ToggleAutomationRuleConditionCommand(world.Tick, AutomationObservable.RackPresent));
+                break;
+            case 2:
+                Execute(new ToggleAutomationRuleConditionCommand(world.Tick, AutomationObservable.ReportedReady));
+                break;
+            case 3:
+                Execute(new ToggleAutomationRuleConditionCommand(world.Tick, AutomationObservable.PhysicalReady));
+                break;
+            case 4:
+                commandFeedback = "START WASHER is the only action available in this editor.";
+                break;
+        }
+    }
+
+    private void MoveSelectedProcessStep(int offset)
+    {
+        var draft = world.Snapshot().ProcessCapture.ActiveEdit;
+        if (draft is null || draft.Steps.Length == 0) return;
+        selectedProcessStep = Math.Clamp(selectedProcessStep, 0, draft.Steps.Length - 1);
+        if (Execute(new MoveProcessStepCommand(world.Tick, draft.Steps[selectedProcessStep].Id, offset)))
+            selectedProcessStep = Math.Clamp(selectedProcessStep + offset, 0, draft.Steps.Length - 1);
+    }
+
+    private void ToggleSelectedProcessAssignment()
+    {
+        var draft = world.Snapshot().ProcessCapture.ActiveEdit;
+        if (draft is null || draft.Steps.Length == 0) return;
+        selectedProcessStep = Math.Clamp(selectedProcessStep, 0, draft.Steps.Length - 1);
+        var step = draft.Steps[selectedProcessStep];
+        Execute(new AssignProcessStepCommand(world.Tick, step.Id,
+            step.AssignedActor.Value == 1 ? new ActorId(0) : new ActorId(1)));
+    }
+
+    private void SelectNextProcessRouting()
+    {
+        var draft = world.Snapshot().ProcessCapture.ActiveEdit;
+        if (draft is null) return;
+        var values = Enum.GetValues<ProcessRoutingPolicy>();
+        var next = values[((int)draft.RoutingPolicy + 1) % values.Length];
+        Execute(new SetProcessRoutingPolicyCommand(world.Tick, next));
+    }
+
+    private bool Execute(ISimulationCommand command)
     {
         var result = world.ExecuteNow(command);
+        if (result.Success && command is ResetDishStationCommand)
+        {
+            characterPresenter.Reset();
+            audioRouter.Initialize(world.Snapshot(), world.Notifications.Count);
+            InitializeDialogue(world.Snapshot());
+        }
+        if (result.Success && command is PerformDishActionCommand or InteractWithDishStationFixtureCommand)
+            characterPresenter.NotifyPlayerWork();
+        audioRouter.ObserveCommand(command, result, EmitAudio);
+        audioRouter.Observe(world.Snapshot(), world.Notifications, EmitAudio);
         commandFeedback = result.Success ? result.Message : $"BLOCKED: {result.Message}";
         if (result.Success && world.IntroComplete) SaveCareer();
         UpdateWindowTitle();
+        return result.Success;
     }
 
     private void AdvanceIntro()
@@ -557,18 +912,19 @@ public sealed class DishStationGame : Game
             return;
         }
         Execute(new CompleteIntroCommand(world.Tick, selectedGuidance, selectedReducedMotion, selectedHighContrast));
+        if (world.IntroComplete) screenRouter.ShowCareer(briefingComplete: true);
     }
 
     private void SelectStartMenu(int offset)
     {
-        if (newCareerConfirmation) return;
-        startMenuSelection = (startMenuSelection + offset + 2) % 2;
+        if (NewCareerConfirmationVisible) return;
+        startMenuSelection = (startMenuSelection + offset + 3) % 3;
         UpdateWindowTitle();
     }
 
     private void ConfirmStartMenu()
     {
-        if (startMenuSelection == 0 && !newCareerConfirmation)
+        if (startMenuSelection == 0 && !NewCareerConfirmationVisible)
         {
             try
             {
@@ -576,12 +932,14 @@ public sealed class DishStationGame : Game
                 var snapshot = world.Snapshot();
                 observedLevel = snapshot.Progression.Level;
                 observedActiveQuest = snapshot.Progression.ActiveQuest;
-                visualPlayerInitialized = false;
+                characterPresenter.Reset();
+                audioRouter.Initialize(snapshot, world.Notifications.Count);
+                InitializeDialogue(snapshot);
                 simulationAccumulator = 0;
                 autosaveAccumulator = 0;
                 lastAutosaveTick = world.Tick.Value;
                 saveStatus = "LOADED";
-                startMenuVisible = false;
+                screenRouter.ShowCareer(snapshot.Onboarding.Complete);
                 commandFeedback = $"Career resumed at level {snapshot.Progression.Level}.";
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or NotSupportedException)
@@ -594,14 +952,22 @@ public sealed class DishStationGame : Game
             return;
         }
 
-        if (!newCareerConfirmation)
+        if (startMenuSelection == 2 && !NewCareerConfirmationVisible)
         {
-            newCareerConfirmation = true;
+            screenRouter.ToggleSettings();
+            settingsStatus = "READY";
             UpdateWindowTitle();
             return;
         }
 
-        world = new DishStationWorld(42);
+        if (!NewCareerConfirmationVisible)
+        {
+            screenRouter.ShowNewCareerConfirmation();
+            UpdateWindowTitle();
+            return;
+        }
+
+        world = new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration);
         introPage = 0;
         selectedGuidance = GuidanceMode.Guided;
         selectedReducedMotion = false;
@@ -609,15 +975,15 @@ public sealed class DishStationGame : Game
         observedLevel = 1;
         observedActiveQuest = DishStationQuestId.ClockIn;
         progressionReceiptQuest = null;
-        shiftReportVisible = false;
         progressionReceiptSeconds = 0;
-        visualPlayerInitialized = false;
+        characterPresenter.Reset();
+        audioRouter.Initialize(world.Snapshot(), world.Notifications.Count);
+        InitializeDialogue(world.Snapshot());
         simulationAccumulator = 0;
         autosaveAccumulator = 0;
         lastAutosaveTick = -1;
         saveStatus = "NEW";
-        newCareerConfirmation = false;
-        startMenuVisible = false;
+        screenRouter.ShowCareer(briefingComplete: false);
         commandFeedback = "New career ready. Complete the first-shift briefing to replace the previous checkpoint.";
         UpdateWindowTitle();
     }
@@ -708,7 +1074,7 @@ public sealed class DishStationGame : Game
 
     private void HandleStartMenuPointer()
     {
-        if (newCareerConfirmation)
+        if (NewCareerConfirmationVisible)
         {
             if (LeftClickIn(218, 388, 250, 48)) HandleControl(ClientControl.MenuConfirm);
             else if (LeftClickIn(548, 388, 250, 48)) HandleControl(ClientControl.MenuBack);
@@ -725,6 +1091,99 @@ public sealed class DishStationGame : Game
             startMenuSelection = 1;
             HandleControl(ClientControl.MenuConfirm);
         }
+        else if (LeftClickIn(326, 349, 460, 52))
+        {
+            startMenuSelection = 2;
+            HandleControl(ClientControl.MenuConfirm);
+        }
+    }
+
+    private void HandleSettingsPointer()
+    {
+        for (var index = 0; index < 4; index++)
+        {
+            var y = 161 + index * 62;
+            if (LeftClickIn(222, y, 580, 48)) settingsSelection = index;
+            if (LeftClickIn(240, y + 8, 54, 32))
+            {
+                settingsSelection = index;
+                AdjustSetting(-1);
+                return;
+            }
+            if (LeftClickIn(730, y + 8, 54, 32))
+            {
+                settingsSelection = index;
+                AdjustSetting(1);
+                return;
+            }
+        }
+
+        if (LeftClickIn(222, 409, 580, 48))
+        {
+            settingsSelection = (int)ClientSettingsOption.ResetDefaults;
+            ConfirmSetting();
+        }
+        else if (LeftClickIn(696, 490, 106, 34))
+        {
+            HandleControl(ClientControl.ToggleSettings);
+        }
+    }
+
+    private void SelectSetting(int offset)
+    {
+        var count = Enum.GetValues<ClientSettingsOption>().Length;
+        settingsSelection = (settingsSelection + offset + count) % count;
+        settingsStatus = "READY";
+        UpdateWindowTitle();
+    }
+
+    private void AdjustSetting(int direction)
+    {
+        var option = (ClientSettingsOption)settingsSelection;
+        if (option == ClientSettingsOption.ResetDefaults) return;
+        clientSettings = clientSettings.Adjust(option, direction);
+        inputBindings = clientSettings.InputBindings;
+        var message = option switch
+        {
+            ClientSettingsOption.MasterVolume => clientSettings.MasterVolumePercent == 0 ? "SAVED • AUDIO MUTED" : "SAVED • AUDIO LIVE",
+            ClientSettingsOption.WindowMode => "SAVED • WINDOW MODE APPLIES AFTER RESTART",
+            _ => "SAVED",
+        };
+        if (option == ClientSettingsOption.MasterVolume)
+        {
+            audioPresenter?.SetMasterVolume(clientSettings.MasterVolumePercent);
+            audioStatus = audioPresenter is null ? audioStatus : clientSettings.MasterVolumePercent == 0 ? "muted" : "ready";
+        }
+        SaveClientSettings(message);
+    }
+
+    private void ConfirmSetting()
+    {
+        var option = (ClientSettingsOption)settingsSelection;
+        if (option == ClientSettingsOption.ResetDefaults)
+        {
+            clientSettings = ClientSettings.Default;
+            inputBindings = clientSettings.InputBindings;
+            audioPresenter?.SetMasterVolume(clientSettings.MasterVolumePercent);
+            audioStatus = audioPresenter is null ? audioStatus : "ready";
+            SaveClientSettings("DEFAULTS RESTORED");
+            return;
+        }
+        AdjustSetting(1);
+    }
+
+    private void SaveClientSettings(string successStatus)
+    {
+        try
+        {
+            ClientSettingsStore.SaveFileAtomic(clientSettingsPath, clientSettings);
+            settingsStatus = successStatus;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            settingsStatus = "SAVE FAILED • CURRENT SESSION KEPT";
+        }
+        UpdateWindowTitle();
     }
 
     private void HandleIntroPointer()
@@ -760,7 +1219,7 @@ public sealed class DishStationGame : Game
 
     private void HandleJournalPointer()
     {
-        if (questDetailVisible)
+        if (QuestDetailVisible)
         {
             if (LeftClickIn(620, 486, 116, 34)) HandleControl(ClientControl.JournalBack);
             else if (LeftClickIn(750, 486, 116, 34)) HandleControl(ClientControl.ToggleQuestJournal);
@@ -780,6 +1239,11 @@ public sealed class DishStationGame : Game
 
     private bool HandleHudPointer()
     {
+        if (LeftClickIn(622, 522, 88, 26))
+        {
+            HandleControl(ClientControl.ToggleSettings);
+            return true;
+        }
         if (LeftClickIn(716, 522, 88, 26))
         {
             HandleControl(ClientControl.ToggleQuestJournal);
@@ -801,7 +1265,7 @@ public sealed class DishStationGame : Game
     private bool LeftClickIn(float x, float y, float width, float height)
     {
         if (!Input.IsMouseButtonPressed(MouseButton.Left)) return false;
-        var point = VirtualMousePosition();
+        var point = UiMousePosition();
         return point.X >= x && point.X <= x + width && point.Y >= y && point.Y <= y + height;
     }
 
@@ -810,14 +1274,11 @@ public sealed class DishStationGame : Game
         DrawModalScrim();
         DrawPanel(132, 78, 760, 444, new Color(17, 30, 38, 248), Color.DeepSkyBlue);
         PixelFont.Draw(spriteBatch!, pixel!, $"STARTING BRIEF  {introPage + 1}/5", 166, 107, 1, Color.LightSkyBlue);
-        var (title, body) = introPage switch
-        {
-            0 => ("WELCOME TO YOUR FIRST SHIFT", "SERVICE IS ABOUT TO OPEN. THIS SMALL DISH STATION IS ALREADY A SYSTEM:\nPEOPLE, MACHINES, INVENTORY, TIMING, AND UNWRITTEN KNOWLEDGE ALL AFFECT\nWHAT HAPPENS. YOUR JOB IS TO KEEP THE REAL OUTCOME IN VIEW."),
-            1 => ("ACT THROUGH CONSEQUENCES", "CLICK A MACHINE TO WALK TO IT; CLICK AGAIN TO WORK. CLICK THE FLOOR TO MOVE.\nDISHES CHANGE VISIBLE STATE, MACHINES BECOME OCCUPIED, AND SERVICE CONSUMES\nWHAT YOU PRODUCE. THE SIMULATION, NOT THE INTERFACE, DECIDES THE RESULT."),
-            2 => ("QUESTS DESCRIBE OUTCOMES", "QUESTS TELL YOU WHAT THE WORKPLACE NEEDS, NOT WHICH BUTTON IS THE ANSWER.\nWATCH CONSEQUENCES, OPEN SYSTEM LENSES, AND TEST YOUR OWN EXPLANATION.\nNEW TOOLS UNLOCK AFTER THE PROBLEM THAT MAKES THEM USEFUL APPEARS."),
-            3 => ("CHOOSE YOUR GUIDANCE", "GUIDED KEEPS DETAILED NEXT-ACTION PROMPTS. CONTEXTUAL EMPHASIZES THE\nCURRENT OUTCOME AND EVIDENCE. MINIMAL LEAVES ONLY QUEST CONDITIONS AND\nWORLD FEEDBACK. THIS CHOICE IS SAVED WITH THE REPLAYABLE CAREER STATE."),
-            _ => ("COMFORT AND READABILITY", "REDUCED MOTION REMOVES CURSOR PULSING AND ACTOR EASING. HIGH CONTRAST\nUSES DARKER PANELS AND STRONGER EDGES. BOTH SETTINGS ARE INDEPENDENT,\nSAVED WITH YOUR CAREER, AND CHANGE PRESENTATION RATHER THAN SIMULATION."),
-        };
+        var (title, body) = introPage < 3
+            ? FirstShiftNarrativePresenter.Briefing(introPage)
+            : introPage == 3
+                ? new FirstShiftBriefingPresentation("CHOOSE YOUR GUIDANCE", "GUIDED OFFERS DETAILED NEXT-ACTION PROMPTS. CONTEXTUAL EMPHASIZES THE\nCURRENT OUTCOME AND EVIDENCE. MINIMAL LEAVES QUEST CONDITIONS AND\nWORKPLACE FEEDBACK. YOU CAN CHANGE THIS CHOICE LATER IN SETTINGS.")
+                : new FirstShiftBriefingPresentation("COMFORT AND READABILITY", "REDUCED MOTION REMOVES CURSOR PULSING AND ACTOR EASING. HIGH CONTRAST\nUSES DARKER PANELS AND STRONGER EDGES. BOTH SETTINGS ARE INDEPENDENT\nAND SAVED WITH YOUR CAREER.");
         PixelFont.Draw(spriteBatch!, pixel!, title, 166, 147, 2, Color.White, 50);
         PixelFont.Draw(spriteBatch!, pixel!, body, 166, 207, 1, Color.LightGray, 92);
         if (introPage == 3)
@@ -831,15 +1292,15 @@ public sealed class DishStationGame : Game
                 PixelFont.Draw(spriteBatch!, pixel!, mode switch { GuidanceMode.Guided => "FULL PROMPTS", GuidanceMode.Contextual => "OUTCOME + CLUES", _ => "WORLD SIGNALS" }, x + 14, 366, 1, Color.LightGray);
                 x += 230;
             }
-            PixelFont.Draw(spriteBatch!, pixel!, "CLICK A CARD OR Q/E CHOOSE", 166, 438, 1, Color.LightGray);
+            PixelFont.Draw(spriteBatch!, pixel!, $"CLICK A CARD OR {Binding(GameInputAction.IntroPrevious)}/{Binding(GameInputAction.IntroNext)} CHOOSE", 166, 438, 1, Color.LightGray);
         }
         else if (introPage == 4)
         {
             DrawPanel(177, 325, 300, 86, selectedReducedMotion ? new Color(40, 75, 88) : new Color(27, 43, 51), selectedReducedMotion ? Color.LightGreen : new Color(84, 103, 110));
-            PixelFont.Draw(spriteBatch!, pixel!, $"Q  REDUCED MOTION  {(selectedReducedMotion ? "ON" : "OFF")}", 195, 344, 1, selectedReducedMotion ? Color.LightGreen : Color.White);
+            PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.IntroPrevious)}  REDUCED MOTION  {(selectedReducedMotion ? "ON" : "OFF")}", 195, 344, 1, selectedReducedMotion ? Color.LightGreen : Color.White);
             PixelFont.Draw(spriteBatch!, pixel!, "SNAP ACTORS / STATIC RETICLE", 195, 375, 1, Color.LightGray);
             DrawPanel(507, 325, 300, 86, selectedHighContrast ? new Color(40, 75, 88) : new Color(27, 43, 51), selectedHighContrast ? Color.LightGreen : new Color(84, 103, 110));
-            PixelFont.Draw(spriteBatch!, pixel!, $"E  HIGH CONTRAST  {(selectedHighContrast ? "ON" : "OFF")}", 525, 344, 1, selectedHighContrast ? Color.LightGreen : Color.White);
+            PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.IntroNext)}  HIGH CONTRAST  {(selectedHighContrast ? "ON" : "OFF")}", 525, 344, 1, selectedHighContrast ? Color.LightGreen : Color.White);
             PixelFont.Draw(spriteBatch!, pixel!, "DARK PANELS / BRIGHT EDGES", 525, 375, 1, Color.LightGray);
         }
         DrawPanel(640, 456, 218, 48, new Color(58, 52, 27), Color.Yellow);
@@ -851,8 +1312,8 @@ public sealed class DishStationGame : Game
         DrawModalScrim();
         DrawPanel(186, 104, 652, 392, new Color(17, 30, 38, 250), Color.DeepSkyBlue);
         PixelFont.Draw(spriteBatch!, pixel!, "THE AUTOMATION GAME", 226, 140, 2, Color.LightSkyBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, "YOUR WORK IS SAVED AS REPLAYABLE CONSEQUENCES, NOT A SCREENSHOT OF THE UI.", 226, 184, 1, Color.LightGray, 78);
-        if (newCareerConfirmation)
+        PixelFont.Draw(spriteBatch!, pixel!, "RETURN TO THE CREW AND THE CONSEQUENCES OF YOUR LAST SHIFT.", 226, 184, 1, Color.LightGray, 78);
+        if (NewCareerConfirmationVisible)
         {
             PixelFont.Draw(spriteBatch!, pixel!, "START A NEW CAREER?", 226, 244, 2, Color.OrangeRed);
             PixelFont.Draw(spriteBatch!, pixel!, "THE EXISTING CHECKPOINT IS KEPT UNTIL YOU COMPLETE THE NEW BRIEFING.\nAFTER THAT, THE NEW CAREER REPLACES IT.", 226, 292, 1, Color.White, 73);
@@ -869,8 +1330,62 @@ public sealed class DishStationGame : Game
         DrawPanel(526, 235, 260, 92, startMenuSelection == 1 ? new Color(74, 58, 43) : new Color(25, 43, 51), startMenuSelection == 1 ? Color.Goldenrod : new Color(78, 97, 104));
         PixelFont.Draw(spriteBatch!, pixel!, "NEW CAREER", 546, 255, 2, startMenuSelection == 1 ? Color.Goldenrod : Color.White);
         PixelFont.Draw(spriteBatch!, pixel!, "RESTART FIRST SHIFT", 546, 295, 1, Color.LightGray);
-        PixelFont.Draw(spriteBatch!, pixel!, "CLICK A CARD   OR Q/E CHOOSE + ENTER   ESC EXIT", 312, 420, 1, Color.Yellow);
+        DrawPanel(326, 349, 460, 52, startMenuSelection == 2 ? new Color(43, 65, 75) : new Color(25, 43, 51), startMenuSelection == 2 ? Color.LightSkyBlue : new Color(78, 97, 104));
+        PixelFont.Draw(spriteBatch!, pixel!, "SETTINGS", 350, 367, 1, startMenuSelection == 2 ? Color.LightSkyBlue : Color.White);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{clientSettings.WindowMode.ToString().ToUpperInvariant()}  UI {clientSettings.UiScalePercent}%", 500, 367, 1, Color.LightGray, 43);
+        PixelFont.Draw(spriteBatch!, pixel!, $"CLICK A CARD   OR {Binding(GameInputAction.MenuPrevious)}/{Binding(GameInputAction.MenuNext)} CHOOSE + {Binding(GameInputAction.MenuConfirm)}   {Binding(GameInputAction.MenuBack)} EXIT", 312, 438, 1, Color.Yellow);
     }
+
+    private void DrawSettings()
+    {
+        DrawModalScrim();
+        DrawPanel(186, 62, 652, 484, new Color(17, 30, 38, 252), Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "SETTINGS", 222, 88, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "CHANGES SAVE IMMEDIATELY. WINDOW MODE APPLIES ON RESTART.", 222, 122, 1, Color.LightGray, 80);
+
+        for (var index = 0; index < Enum.GetValues<ClientSettingsOption>().Length; index++)
+        {
+            var option = (ClientSettingsOption)index;
+            var y = 161 + index * 62;
+            var selected = settingsSelection == index;
+            DrawPanel(222, y, 580, 48, selected ? new Color(38, 60, 69) : new Color(24, 39, 45),
+                selected ? Color.LightSkyBlue : new Color(72, 91, 98));
+            PixelFont.Draw(spriteBatch!, pixel!, SettingsOptionLabel(option), 316, y + 10, 1, selected ? Color.White : Color.LightGray, 29);
+            PixelFont.Draw(spriteBatch!, pixel!, SettingsOptionValue(option), 500, y + 10, 1,
+                option == ClientSettingsOption.MasterVolume ? Color.Goldenrod : Color.LightGreen, 36);
+            if (option == ClientSettingsOption.ResetDefaults) continue;
+            DrawPanel(240, y + 8, 54, 32, new Color(31, 45, 51), Color.LightGray);
+            PixelFont.Draw(spriteBatch!, pixel!, "-", 264, y + 19, 1, Color.White);
+            DrawPanel(730, y + 8, 54, 32, new Color(31, 45, 51), Color.LightGray);
+            PixelFont.Draw(spriteBatch!, pixel!, "+", 754, y + 19, 1, Color.White);
+        }
+
+        PixelFont.Draw(spriteBatch!, pixel!, $"{settingsStatus}   BINDINGS PROFILE V{clientSettings.InputBindings.SchemaVersion} / {Enum.GetValues<GameInputAction>().Length} ACTIONS", 222, 472, 1,
+            settingsStatus.StartsWith("SAVE FAILED", StringComparison.Ordinal) ? Color.OrangeRed : Color.Yellow, 78);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.SettingsPrevious)}/{Binding(GameInputAction.SettingsNext)} SELECT   {Binding(GameInputAction.SettingsDecrease)}/{Binding(GameInputAction.SettingsIncrease)} CHANGE   {Binding(GameInputAction.SettingsReset)} RESET", 222, 501, 1, Color.LightGray, 72);
+        DrawPanel(696, 490, 106, 34, new Color(31, 45, 51), Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "CLOSE", 727, 502, 1, Color.LightSkyBlue);
+    }
+
+    private static string SettingsOptionLabel(ClientSettingsOption option) => option switch
+    {
+        ClientSettingsOption.MasterVolume => "MASTER VOLUME",
+        ClientSettingsOption.UiScale => "UI SCALE",
+        ClientSettingsOption.CameraSensitivity => "CAMERA SENSITIVITY",
+        ClientSettingsOption.WindowMode => "WINDOW MODE",
+        ClientSettingsOption.ResetDefaults => "RESET DEFAULTS",
+        _ => option.ToString().ToUpperInvariant(),
+    };
+
+    private string SettingsOptionValue(ClientSettingsOption option) => option switch
+    {
+        ClientSettingsOption.MasterVolume => $"{clientSettings.MasterVolumePercent}%  {(clientSettings.MasterVolumePercent == 0 ? "MUTED" : "LIVE")}",
+        ClientSettingsOption.UiScale => $"{clientSettings.UiScalePercent}%  FITTED",
+        ClientSettingsOption.CameraSensitivity => $"{clientSettings.CameraSensitivityPercent}%",
+        ClientSettingsOption.WindowMode => clientSettings.WindowMode == ClientWindowMode.Windowed ? "WINDOWED / RESTART" : "BORDERLESS / RESTART",
+        ClientSettingsOption.ResetDefaults => "PRESS ENTER",
+        _ => "",
+    };
 
     private void DrawQuestJournal(CareerProgressionSnapshot progression)
     {
@@ -879,11 +1394,12 @@ public sealed class DishStationGame : Game
         PixelFont.Draw(spriteBatch!, pixel!, $"FIRST SHIFT JOURNAL   LEVEL {progression.Level}   XP {progression.Experience}   ACTIVE {PaceLabel(progression.ActivePlayTicks)}", 132, 78, 2, Color.White, 75);
         PixelFont.Draw(spriteBatch!, pixel!, "OUTCOMES UNLOCK WAYS OF SEEING AND ACTING; THEY DO NOT INCREASE MACHINE SPEED.", 132, 113, 1, Color.LightGray, 105);
         var y = 146f;
-        foreach (var definition in DishStationFirstHoursContent.Quests)
+        for (var index = 0; index < DishStationFirstHoursContent.Quests.Count; index++)
         {
+            var definition = DishStationFirstHoursContent.Quests[index];
             var state = progression.Quest(definition.Id);
             var active = progression.ActiveQuest == definition.Id;
-            var selected = selectedJournalQuest == (int)definition.Id;
+            var selected = selectedJournalQuest == index;
             var color = state.Complete ? Color.LightGreen : active ? Color.Yellow : new Color(102, 117, 121);
             DrawRect(126, y - 5, 770, 42, active ? new Color(38, 51, 55) : new Color(23, 37, 43));
             if (selected) DrawBorder(new RectangleF(126, y - 5, 770, 42), 2, Color.DeepSkyBlue);
@@ -893,7 +1409,7 @@ public sealed class DishStationGame : Game
             PixelFont.Draw(spriteBatch!, pixel!, definition.ObservableOutcome, 197, y + 21, 1, Color.LightGray, 92);
             y += 43;
         }
-        PixelFont.Draw(spriteBatch!, pixel!, "CLICK A ROW OR UP/DOWN TO SELECT", 132, 516, 1, Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, $"CLICK A ROW OR {Binding(GameInputAction.JournalPrevious)}/{Binding(GameInputAction.JournalNext)} TO SELECT", 132, 516, 1, Color.LightGray);
         DrawPanel(620, 502, 116, 32, new Color(58, 52, 27), Color.Goldenrod);
         PixelFont.Draw(spriteBatch!, pixel!, "DETAILS", 647, 513, 1, Color.Goldenrod);
         DrawPanel(750, 502, 116, 32, new Color(31, 45, 51), Color.LightGray);
@@ -905,7 +1421,7 @@ public sealed class DishStationGame : Game
         DrawModalScrim();
         DrawPanel(72, 42, 880, 516, new Color(15, 29, 36, 252), Color.DeepSkyBlue);
         PixelFont.Draw(spriteBatch!, pixel!, "SHIFT HANDBOOK", 104, 68, 2, Color.LightSkyBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, $"GUIDANCE  {snapshot.Onboarding.GuidanceMode.ToString().ToUpperInvariant()}   LEVEL {snapshot.Progression.Level}   F12 / ESC  CLOSE", 104, 101, 1, Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, $"GUIDANCE  {snapshot.Onboarding.GuidanceMode.ToString().ToUpperInvariant()}   LEVEL {snapshot.Progression.Level}   {Binding(GameInputAction.HelpClose)}  CLOSE", 104, 101, 1, Color.LightGray);
         DrawPanel(802, 74, 116, 38, new Color(31, 45, 51), Color.LightGray);
         PixelFont.Draw(spriteBatch!, pixel!, "CLOSE", 839, 88, 1, Color.LightGray);
 
@@ -914,11 +1430,11 @@ public sealed class DishStationGame : Game
         PixelFont.Draw(spriteBatch!, pixel!, OpportunityFor(snapshot.TutorialStage), 116, 171, 1, Color.White, 104);
 
         PixelFont.Draw(spriteBatch!, pixel!, "WORK THE STATION", 104, 234, 1, Color.MediumTurquoise);
-        PixelFont.Draw(spriteBatch!, pixel!, "CLICK A FIXTURE  MOVE / WORK\nQ / E            SELECT STATION\nSPACE            MOVE / WORK\nTAB              CHANGE DISH", 104, 259, 1, Color.White, 37);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{MovementBindingLabel(),-17}MOVE\n{Binding(GameInputAction.Interact),-17}INTERACT / WORK\n{Binding(GameInputAction.Inspect),-17}INSPECT\nCLICK             SELECT / MOVE", 104, 259, 1, Color.White, 37);
         PixelFont.Draw(spriteBatch!, pixel!, "READ THE SYSTEM", 375, 234, 1, Color.CornflowerBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, "J                QUEST JOURNAL\nV                CYCLE UNLOCKED LENSES\nL                PROCESS EVIDENCE\nF12              THIS HANDBOOK", 375, 259, 1, Color.White, 42);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.JournalToggle),-17}QUEST JOURNAL\n{Binding(GameInputAction.NextLens),-17}CYCLE UNLOCKED LENSES\n{Binding(GameInputAction.ToggleProcessLens),-17}PROCESS EVIDENCE\n{Binding(GameInputAction.ProcessCaptureToggle),-17}START / FINISH CAPTURE\n{Binding(GameInputAction.ProcessEditorToggle),-17}EDIT CAPTURED PROCESS\n{Binding(GameInputAction.AutomationEditorToggle),-17}EDIT WASHER RULE\n{Binding(GameInputAction.SettingsToggle),-17}SETTINGS", 375, 259, 1, Color.White, 42);
         PixelFont.Draw(spriteBatch!, pixel!, "MOVE THE VIEW", 694, 234, 1, new Color(220, 158, 239));
-        PixelFont.Draw(spriteBatch!, pixel!, "ARROWS           PAN\nZ / X            ZOOM\nC                CENTER", 694, 259, 1, Color.White, 31);
+        PixelFont.Draw(spriteBatch!, pixel!, $"MIDDLE-DRAG      PAN\nWHEEL            ZOOM\n{Binding(GameInputAction.CameraReset),-17}CENTER", 694, 259, 1, Color.White, 31);
 
         DrawPanel(98, 350, 828, 142, new Color(21, 36, 42, 248), Color.LightGreen);
         PixelFont.Draw(spriteBatch!, pixel!, "CAPABILITIES AVAILABLE NOW", 116, 366, 1, Color.LightGreen);
@@ -926,43 +1442,48 @@ public sealed class DishStationGame : Game
         PixelFont.Draw(spriteBatch!, pixel!, "NEW ACTIONS APPEAR HERE ONLY AFTER THE PROBLEM THAT MAKES THEM USEFUL.", 116, 472, 1, Color.LightGray, 102);
 
         var tools = DeveloperToolsAvailable
-            ? "F1  SANDBOX TOOLS AVAILABLE"
+            ? $"{Binding(GameInputAction.DeveloperToggle)}  SANDBOX TOOLS AVAILABLE"
             : "SANDBOX TOOLS UNLOCK AFTER THE FIRST SHIFT";
         PixelFont.Draw(spriteBatch!, pixel!, tools, 104, 520, 1, DeveloperToolsAvailable ? Color.Goldenrod : Color.LightGray);
         PixelFont.Draw(spriteBatch!, pixel!, "HELP EXPLAINS CONTROLS.\nTHE WORLD STILL PROVIDES THE EVIDENCE.", 510, 512, 1, Color.LightGray, 48);
     }
 
-    private static string CapabilityHelp(DishStationSnapshot snapshot)
+    private string CapabilityHelp(DishStationSnapshot snapshot)
     {
         var progression = snapshot.Progression;
-        var lines = new List<string> { "L / V  PROCESS AND STATE EVIDENCE" };
-        if (progression.IsUnlocked(CareerCapability.LayoutEditor)) lines.Add("G / M  FLOW CELL AND FIXTURE LAYOUT");
-        if (progression.IsUnlocked(CareerCapability.KnowledgeLens)) lines.Add("N / T / Y  DELEGATE, TRANSFER, PRIORITIZE");
-        if (progression.IsUnlocked(CareerCapability.ExceptionNotebook)) lines.Add("U  RECORD THE DISCOVERED EXCEPTION");
-        if (progression.IsUnlocked(CareerCapability.AutomationWorkbench)) lines.Add("A / S  AUTOMATE, THEN CORROBORATE STATE");
-        if (progression.IsUnlocked(CareerCapability.RuntimeTrace)) lines.Add("I / P / D  INSPECT, REPLAY, TRACE");
-        if (snapshot.TutorialStage is DishTutorialStage.ShiftReview or DishTutorialStage.ValidateShift) lines.Add("W  OPEN OR RETRY THE LIVE RELIABILITY WINDOW");
-        if (progression.IsUnlocked(CareerCapability.ShiftScorecard)) lines.Add("K  FIRST-SHIFT SCORECARD");
+        var lines = new List<string>
+        {
+            $"{Binding(GameInputAction.ToggleProcessLens)} / {Binding(GameInputAction.NextLens)}  PROCESS AND STATE EVIDENCE",
+            $"{Binding(GameInputAction.ProcessCaptureToggle)} / {Binding(GameInputAction.ProcessEditorToggle)}  CAPTURE AND EDIT OWNED PROCESS",
+        };
+        if (progression.IsUnlocked(CareerCapability.LayoutEditor)) lines.Add($"{Binding(GameInputAction.ConfigureFlowCell)} / {Binding(GameInputAction.TogglePlacement)}  FLOW CELL AND FIXTURE LAYOUT");
+        if (progression.IsUnlocked(CareerCapability.KnowledgeLens)) lines.Add($"{Binding(GameInputAction.ToggleNewHire)} / {Binding(GameInputAction.TrainHappyPath)} / {Binding(GameInputAction.TrainRushPriority)}  DELEGATE, TRANSFER, PRIORITIZE");
+        if (progression.IsUnlocked(CareerCapability.ExceptionNotebook)) lines.Add($"{Binding(GameInputAction.TrainRareTray)}  RECORD THE DISCOVERED EXCEPTION");
+        if (progression.IsUnlocked(CareerCapability.AutomationWorkbench)) lines.Add($"{Binding(GameInputAction.AutomationEditorToggle)}  CREATE OR REFINE THE WASHER RULE");
+        if (progression.IsUnlocked(CareerCapability.RuntimeTrace)) lines.Add($"{Binding(GameInputAction.InspectIncident)} / {Binding(GameInputAction.ReplayIncident)}  INSPECT AND RETEST INCIDENT EVIDENCE");
+        if (progression.IsUnlocked(CareerCapability.ShiftScorecard)) lines.Add($"{Binding(GameInputAction.ShiftReportToggle)}  FIRST-SHIFT SCORECARD");
         return string.Join('\n', lines.Take(6));
     }
 
-    private static string OpportunityFor(DishTutorialStage stage) => stage switch
+    private string OpportunityFor(DishTutorialStage stage) => stage switch
     {
         DishTutorialStage.RestockFirstDish => "FOLLOW ONE PLATE THROUGH EVERY VISIBLE WORK STATE; CLICK A FIXTURE AGAIN WHEN YOU ARRIVE.",
-        DishTutorialStage.EnableDinnerRush => "SERVICE HAS SUPPLY. R TO OPEN DINNER DEMAND AND WATCH WHAT CHANGES.",
+        DishTutorialStage.EnableDinnerRush => $"AVERY HAS THE FIRST PLATE. {Binding(GameInputAction.ToggleRush)} LETS TESSA OPEN DINNER SERVICE.",
         DishTutorialStage.AwaitServiceShortage => "KEEP WORK MOVING, BUT WATCH THE DISH SERVICE ACTUALLY NEEDS.",
-        DishTutorialStage.InspectShortage or DishTutorialStage.ChooseBottleneck => "L OPENS QUEUE EVIDENCE. SELECT A STATION AND B RECORDS YOUR CONSTRAINT HYPOTHESIS.",
-        DishTutorialStage.ImproveLayout => "G TRIES A COMPACT FLOW CELL; M OPENS THE FREEFORM LAYOUT SANDBOX.",
+        DishTutorialStage.InspectShortage or DishTutorialStage.ChooseBottleneck => $"{Binding(GameInputAction.ToggleProcessLens)} OPENS QUEUE EVIDENCE. SELECT A STATION AND {Binding(GameInputAction.ConfirmBottleneck)} RECORDS YOUR CONSTRAINT HYPOTHESIS.",
+        DishTutorialStage.ImproveLayout => $"{Binding(GameInputAction.ConfigureFlowCell)} TRIES A COMPACT FLOW CELL; {Binding(GameInputAction.TogglePlacement)} OPENS THE FREEFORM LAYOUT SANDBOX.",
         DishTutorialStage.ValidateBottleneck or DishTutorialStage.AwaitValidationDemand => "RUN THE SCARCE DISH THROUGH THE SAME STATES AND WATCH WHETHER SERVICE CONSUMES IT.",
-        DishTutorialStage.InviteNewHire or DishTutorialStage.TrainNewHire => "N BRINGS THE WORKER ON SHIFT; T TRANSFERS THE PROCESS YOU HAVE MADE EXPLICIT.",
-        DishTutorialStage.ObserveNewHire or DishTutorialStage.DocumentGlassPriority or DishTutorialStage.ValidateDelegation => "WATCH THE WRITTEN PROCESS FAIL UNDER RUSH DEMAND; Y ADDS THE MISSING GLASS PRIORITY.",
-        DishTutorialStage.ObserveRareTray or DishTutorialStage.DocumentRareTray or DishTutorialStage.ValidateRareTray => "WATCH THE UNCOMMON TRAY CONSEQUENCE; U RECORDS ITS HANDLING EXCEPTION.",
-        DishTutorialStage.OfferAutomation or DishTutorialStage.ObserveAutomation => "A ENABLES THE OFFERED REPORTED-READY RULE. OBSERVE SEVERAL REAL CYCLES.",
-        DishTutorialStage.InvestigateAutomation or DishTutorialStage.ReplayAutomation => "I INSPECTS THE FIRST DIVERGENCE; P REPLAYS THE CAPTURED DECISION.",
-        DishTutorialStage.RefineAutomation or DishTutorialStage.ValidateAutomation or DishTutorialStage.ValidateRegression => "S CORROBORATES REPORTED READY WITH PHYSICAL STATE; P RETESTS THE CAPTURED CASE.",
-        DishTutorialStage.ShiftReview => "STAGE CLEAN GLASSES, THEN W OPENS THE LIVE RELIABILITY WINDOW.",
-        DishTutorialStage.ValidateShift => "KEEP THE WHOLE STATION SUPPLIED THROUGH THREE LIVE DEMAND CHECKS.",
-        DishTutorialStage.EpisodeComplete => "K OPENS THE FROZEN SHIFT SCORECARD; F1 OPENS POST-SHIFT SANDBOX TOOLS.",
+        DishTutorialStage.InviteNewHire or DishTutorialStage.TrainNewHire => $"{Binding(GameInputAction.ToggleNewHire)} BRINGS JULES ON SHIFT; {Binding(GameInputAction.TrainHappyPath)} SHARES THE BASIC FLOW.",
+        DishTutorialStage.ObserveNewHire or DishTutorialStage.DocumentGlassPriority or DishTutorialStage.ValidateDelegation => $"WATCH JULES FOLLOW THE SHARED FLOW; {Binding(GameInputAction.TrainRushPriority)} ADDS RAY'S MISSING GLASS PRIORITY.",
+        DishTutorialStage.ObserveRareTray or DishTutorialStage.DocumentRareTray or DishTutorialStage.ValidateRareTray => $"WATCH THE UNCOMMON TRAY CONSEQUENCE; {Binding(GameInputAction.TrainRareTray)} RECORDS RAY'S HANDLING EXCEPTION.",
+        DishTutorialStage.OfferAutomation => $"{Binding(GameInputAction.AutomationEditorToggle)} OPENS THE RULE EDITOR. ENABLE AND APPLY THE REPORTED-READY RULE.",
+        DishTutorialStage.ObserveAutomation => "WATCH YOUR REPORTED-READY RULE RUN, THEN COMPARE THE PANEL WITH DEVON'S PHYSICAL CHECK.",
+        DishTutorialStage.InvestigateAutomation or DishTutorialStage.ReplayAutomation => $"{Binding(GameInputAction.InspectIncident)} INSPECTS THE FIRST DIVERGENCE; {Binding(GameInputAction.ReplayIncident)} REPLAYS THE CAPTURED DECISION.",
+        DishTutorialStage.RefineAutomation => $"{Binding(GameInputAction.AutomationEditorToggle)} OPENS YOUR RULE. ADD PHYSICAL READY AND APPLY.",
+        DishTutorialStage.ValidateAutomation or DishTutorialStage.ValidateRegression => $"CORROBORATE REPORTED READY WITH PHYSICAL STATE; {Binding(GameInputAction.ReplayIncident)} RETESTS THE CAPTURED CASE.",
+        DishTutorialStage.ShiftReview => "STAGE CLEAN GLASSES BEFORE AVERY HANDS OVER THE SHIFT.",
+        DishTutorialStage.ValidateShift => "KEEP TESSA SUPPLIED THROUGH THREE LIVE SERVICE CHECKS.",
+        DishTutorialStage.EpisodeComplete => $"{Binding(GameInputAction.ShiftReportToggle)} OPENS AVERY'S FIRST-SHIFT REPORT.",
         _ => "OBSERVE WHAT CHANGED, THEN CHOOSE AN ACTION THAT COULD AFFECT THE OUTCOME.",
     };
 
@@ -974,30 +1495,33 @@ public sealed class DishStationGame : Game
         var statusColor = state.Complete ? Color.LightGreen : active ? Color.Yellow : new Color(125, 140, 145);
         DrawModalScrim();
         DrawPanel(132, 65, 760, 470, new Color(17, 30, 38, 250), statusColor);
-        PixelFont.Draw(spriteBatch!, pixel!, $"QUEST {(int)definition.Id + 1}/{DishStationFirstHoursContent.Quests.Count}   {definition.Title}", 166, 94, 2, Color.White, 62);
+        PixelFont.Draw(spriteBatch!, pixel!, $"QUEST {selectedJournalQuest + 1}/{DishStationFirstHoursContent.Quests.Count}   {definition.Title}", 166, 94, 2, Color.White, 62);
         PixelFont.Draw(spriteBatch!, pixel!, state.Complete ? "COMPLETED" : active ? $"ACTIVE  {state.Percent}%" : "LOCKED", 166, 132, 1, statusColor);
         PixelFont.Draw(spriteBatch!, pixel!, $"+{definition.ExperienceReward} XP   {CapabilityLabel(definition.CapabilityReward)}", 520, 132, 1, statusColor, 48);
+        var participants = GameplayHudPresenter.QuestParticipants(definition);
+        PixelFont.Draw(spriteBatch!, pixel!, $"WITH  {string.Join(" / ", participants.Select(participant => participant.DisplayName))}", 166, 153, 1, Color.Goldenrod, 91);
+        PixelFont.Draw(spriteBatch!, pixel!, $"ROLES  {string.Join(", ", participants.Select(participant => participant.Role))}", 166, 169, 1, Color.Goldenrod, 91);
 
-        PixelFont.Draw(spriteBatch!, pixel!, "SITUATION", 166, 174, 1, Color.LightSkyBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, definition.Situation.ToUpperInvariant(), 166, 195, 1, Color.White, 91);
-        PixelFont.Draw(spriteBatch!, pixel!, "OUTCOME", 166, 244, 1, Color.LightSkyBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, definition.ObservableOutcome.ToUpperInvariant(), 166, 265, 1, Color.White, 91);
-        PixelFont.Draw(spriteBatch!, pixel!, state.Complete ? "WHAT THE CONSEQUENCE REVEALED" : "DISCOVERY RECORD", 166, 315, 1, state.Complete ? Color.LightGreen : Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "SITUATION", 166, 190, 1, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, definition.Situation.ToUpperInvariant(), 166, 211, 1, Color.White, 91);
+        PixelFont.Draw(spriteBatch!, pixel!, "OUTCOME", 166, 260, 1, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, definition.ObservableOutcome.ToUpperInvariant(), 166, 281, 1, Color.White, 91);
+        PixelFont.Draw(spriteBatch!, pixel!, state.Complete ? "WHAT THE CONSEQUENCE REVEALED" : "DISCOVERY RECORD", 166, 331, 1, state.Complete ? Color.LightGreen : Color.Goldenrod);
         var discovery = state.Complete
             ? definition.Discovery.ToUpperInvariant()
             : active
                 ? "COMPLETE THE OUTCOME TO RECORD WHAT THE EVIDENCE REVEALS."
                 : "THIS RECORD OPENS AFTER THE QUEST BECOMES ACTIVE AND ITS OUTCOME IS OBSERVED.";
-        DrawPanel(166, 340, 692, 76, new Color(23, 37, 43), state.Complete ? Color.LightGreen : new Color(90, 104, 109));
-        PixelFont.Draw(spriteBatch!, pixel!, discovery, 184, 360, 1, state.Complete ? Color.White : Color.LightGray, 88);
+        DrawPanel(166, 356, 692, 76, new Color(23, 37, 43), state.Complete ? Color.LightGreen : new Color(90, 104, 109));
+        PixelFont.Draw(spriteBatch!, pixel!, discovery, 184, 376, 1, state.Complete ? Color.White : Color.LightGray, 88);
 
         var timing = state.StartedAtTick < 0
             ? "NOT STARTED"
             : state.Complete
-                ? $"ACTIVE {PaceLabel(state.ElapsedTicks)}   T{state.StartedAtTick} TO T{state.CompletedAtTick}"
-                : $"ACTIVE {PaceLabel(state.ElapsedTicks)}   STARTED T{state.StartedAtTick}";
-        PixelFont.Draw(spriteBatch!, pixel!, timing, 166, 447, 1, Color.LightGray);
-        PixelFont.Draw(spriteBatch!, pixel!, "Q/E OR UP/DOWN  CHANGE QUEST", 166, 500, 1, Color.LightGray);
+                ? $"COMPLETED AFTER {PaceLabel(state.ElapsedTicks)} OF ACTIVE WORK"
+                : $"ACTIVE FOR {PaceLabel(state.ElapsedTicks)}";
+        PixelFont.Draw(spriteBatch!, pixel!, timing, 166, 463, 1, Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.JournalPrevious)} / {Binding(GameInputAction.JournalNext)}  CHANGE QUEST", 166, 500, 1, Color.LightGray);
         DrawPanel(620, 486, 116, 34, new Color(58, 52, 27), Color.Goldenrod);
         PixelFont.Draw(spriteBatch!, pixel!, "BACK", 659, 498, 1, Color.Goldenrod);
         DrawPanel(750, 486, 116, 34, new Color(31, 45, 51), Color.LightGray);
@@ -1008,12 +1532,14 @@ public sealed class DishStationGame : Game
     {
         var progression = snapshot.Progression;
         var report = snapshot.ShiftReport;
+        var economy = GameplayHudPresenter.Economy(report.Economy);
         var completed = progression.Quests.Count(quest => quest.Complete);
         DrawModalScrim();
         DrawPanel(58, 38, 908, 524, new Color(14, 28, 34, 252), Color.LightGreen);
-        PixelFont.Draw(spriteBatch!, pixel!, "FIRST SHIFT REPORT", 88, 66, 2, Color.LightGreen);
+        var debrief = FirstShiftNarrativePresenter.Debrief();
+        PixelFont.Draw(spriteBatch!, pixel!, debrief.ChapterTitle, 88, 66, 2, Color.LightGreen);
         PixelFont.Draw(spriteBatch!, pixel!, $"LEVEL {progression.Level}   XP {progression.Experience}   ACTIVE {PaceLabel(progression.ActivePlayTicks)}   OUTCOMES {completed}/{progression.Quests.Count}", 88, 101, 1, Color.White);
-        PixelFont.Draw(spriteBatch!, pixel!, "THE SCORECARD SUMMARIZES OBSERVED CONSEQUENCES; IT DOES NOT GRADE BUTTON PRESSES.", 88, 123, 1, Color.LightGray, 112);
+        PixelFont.Draw(spriteBatch!, pixel!, debrief.Summary, 88, 123, 1, Color.LightGray, 112);
         FlushReportBatch();
 
         DrawPanel(84, 154, 260, 218, new Color(24, 42, 47, 245), Color.MediumTurquoise);
@@ -1028,14 +1554,14 @@ public sealed class DishStationGame : Game
         FlushReportBatch();
 
         DrawPanel(668, 154, 272, 218, new Color(41, 35, 49, 245), new Color(195, 133, 219));
-        PixelFont.Draw(spriteBatch!, pixel!, "CAPABILITY EARNED", 686, 172, 1, new Color(220, 158, 239));
-        PixelFont.Draw(spriteBatch!, pixel!, "SHIFT SCORECARD", 686, 203, 2, Color.White, 28);
-        PixelFont.Draw(spriteBatch!, pixel!, "FLOW\nSEE THE CONSTRAINT.\n\nKNOWLEDGE\nWRITE THE EXCEPTION.\n\nAUTOMATION\nCORROBORATE STATE.\n\nOWNERSHIP\nPROVE THE OUTCOME.", 686, 243, 1, Color.LightGray, 32);
+        PixelFont.Draw(spriteBatch!, pixel!, "SHIFT ECONOMY", 686, 172, 1, new Color(220, 158, 239));
+        PixelFont.Draw(spriteBatch!, pixel!, economy.Summary, 686, 194, 1, Color.White, 34);
+        PixelFont.Draw(spriteBatch!, pixel!, economy.Details, 686, 222, 1, Color.LightGray, 34);
         FlushReportBatch();
 
         DrawPanel(84, 394, 856, 124, new Color(20, 35, 38, 248), Color.Goldenrod);
-        PixelFont.Draw(spriteBatch!, pixel!, "PLAYTEST DEBRIEF / ANSWER WITHOUT OPENING THE JOURNAL", 102, 412, 1, Color.Goldenrod);
-        PixelFont.Draw(spriteBatch!, pixel!, "1  WHAT CONSTRAINED GLASS SERVICE, AND WHAT EVIDENCE SHOWED IT?\n2  WHICH UNWRITTEN ASSUMPTIONS FAILED WHEN WORK WAS DELEGATED OR AUTOMATED?\n3  WHY DID THE REPLAY AND LIVE WINDOW PROVIDE STRONGER EVIDENCE THAN A HAPPY PATH?", 102, 442, 1, Color.White, 105);
+        PixelFont.Draw(spriteBatch!, pixel!, "SHIFT DEBRIEF", 102, 412, 1, Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, string.Join('\n', debrief.Questions.Select((question, index) => $"{index + 1}  {question}")), 102, 442, 1, Color.White, 105);
         DrawPanel(784, 526, 148, 28, new Color(27, 54, 42), Color.LightGreen);
         PixelFont.Draw(spriteBatch!, pixel!, "CLOSE REPORT", 808, 536, 1, Color.LightGreen);
     }
@@ -1043,8 +1569,7 @@ public sealed class DishStationGame : Game
     private void FlushReportBatch()
     {
         spriteBatch!.End();
-        var canvasTransform = Matrix.Scaling(canvasScale, canvasScale, 1) * Matrix.Translation(canvasOffsetX, canvasOffsetY, 0);
-        spriteBatch.Begin(GraphicsContext, canvasTransform);
+        spriteBatch.Begin(GraphicsContext, UiCanvasTransform());
     }
 
     private void DrawProgressionToasts(CareerProgressionSnapshot progression)
@@ -1065,7 +1590,7 @@ public sealed class DishStationGame : Game
         CareerCapability.KnowledgeLens => "KNOWLEDGE LENS",
         CareerCapability.ExceptionNotebook => "EXCEPTION NOTES",
         CareerCapability.AutomationWorkbench => "AUTOMATION",
-        CareerCapability.RuntimeTrace => "RUNTIME TRACE",
+        CareerCapability.RuntimeTrace => "INCIDENT EVIDENCE",
         CareerCapability.ResponsibilityMap => "OWNERSHIP MAP",
         CareerCapability.ShiftScorecard => "SHIFT SCORECARD",
         _ => "STATE LENS",
@@ -1086,27 +1611,38 @@ public sealed class DishStationGame : Game
         UpdateCanvasTransform();
         var canvasTransform = Matrix.Scaling(canvasScale, canvasScale, 1) * Matrix.Translation(canvasOffsetX, canvasOffsetY, 0);
         spriteBatch.Begin(GraphicsContext, canvasTransform);
-        DrawRect(0, 0, VirtualWidth, VirtualHeight, new Color(12, 22, 27));
-        IsometricStationScene.Draw(spriteBatch, pixel, diamond, snapshot, selectedKind, selectedWorkstation,
-            activeLens == SystemLens.Process, camera, visualPlayerCell, placementMode, placementFixture,
+        if (nativeRoom is null) DrawRect(0, 0, VirtualWidth, VirtualHeight, new Color(12, 22, 27));
+        IsometricStationScene.Draw(spriteBatch, pixel, diamond, washerProjection, presentationCatalog, nativeRoom is null,
+            snapshot, selectedKind, selectedWorkstation,
+            activeLens == SystemLens.Process, camera, characterFrame, renderReducedMotion, placementMode, placementFixture,
             placementPreview, IsPlacementPreviewValid(), hoveredFixture, InteractionColor(), InteractionPulse());
+        if (screenRouter.Screen == ClientScreen.Gameplay && screenRouter.Modal == ClientModal.None && activeLens is SystemLens.Reality or SystemLens.Process) DrawInteractionCursor();
+        spriteBatch.End();
+
+        spriteBatch.Begin(GraphicsContext, UiCanvasTransform());
         DrawGameplayHud(snapshot);
         DrawActiveLens(snapshot);
         if (godMode) DrawGodTools();
         if (benchmarkVisible && benchmarkResult is not null) DrawSyntheticBenchmark(benchmarkResult);
-        if (world.IntroComplete && !questJournalVisible && activeLens is SystemLens.Reality or SystemLens.Process) DrawInteractionCursor();
-        if (startMenuVisible) DrawStartMenu();
-        else if (!snapshot.Onboarding.Complete) DrawIntroWizard();
+        if (StartMenuVisible)
+        {
+            DrawStartMenu();
+            if (SettingsVisible) DrawSettings();
+        }
+        else if (BriefingVisible) DrawIntroWizard();
         else
         {
-            if (helpVisible) DrawHelp(snapshot);
-            else if (shiftReportVisible) DrawShiftReport(snapshot);
-            else if (questJournalVisible)
+            if (SettingsVisible) DrawSettings();
+            else if (HelpVisible) DrawHelp(snapshot);
+            else if (ShiftReportVisible) DrawShiftReport(snapshot);
+            else if (ProcessEditorVisible) DrawProcessEditor(snapshot.ProcessCapture);
+            else if (AutomationEditorVisible) DrawAutomationRuleEditor(snapshot.Automation);
+            else if (QuestJournalVisible)
             {
-                if (questDetailVisible) DrawQuestDetail(snapshot.Progression);
+                if (QuestDetailVisible) DrawQuestDetail(snapshot.Progression);
                 else DrawQuestJournal(snapshot.Progression);
             }
-            if (!questJournalVisible && !shiftReportVisible) DrawProgressionToasts(snapshot.Progression);
+            if (screenRouter.Modal == ClientModal.None) DrawProgressionToasts(snapshot.Progression);
         }
         spriteBatch.End();
     }
@@ -1115,13 +1651,19 @@ public sealed class DishStationGame : Game
     {
         DrawPanel(14, 12, 380, 56, new Color(17, 30, 38, 226), Color.DeepSkyBlue);
         PixelFont.Draw(spriteBatch!, pixel!, "DISH STATION", 27, 23, 2, Color.LightSkyBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, $"LEVEL {snapshot.Progression.Level}  XP {snapshot.Progression.Experience}  {activeLens.ToString().ToUpperInvariant()}  T{snapshot.Tick.Value}  {(paused ? "PAUSED" : "LIVE")}", 27, 49, 1, paused ? Color.Yellow : Color.LightGray);
+        PixelFont.Draw(spriteBatch!, pixel!, $"LEVEL {snapshot.Progression.Level}  XP {snapshot.Progression.Experience}  {activeLens.ToString().ToUpperInvariant()}  {(paused ? "PAUSED" : "LIVE SHIFT")}", 27, 49, 1, paused ? Color.Yellow : Color.LightGray);
         var xpFraction = snapshot.Progression.NextLevelExperience == 0
             ? 1f
             : (snapshot.Progression.Experience - snapshot.Progression.CurrentLevelExperience) /
               (float)(snapshot.Progression.NextLevelExperience - snapshot.Progression.CurrentLevelExperience);
         DrawRect(296, 51, 82, 5, new Color(43, 58, 63));
         DrawRect(296, 51, 82 * Math.Clamp(xpFraction, 0, 1), 5, Color.LightGreen);
+
+        var economy = GameplayHudPresenter.Economy(snapshot.Economy);
+        var economyAccent = snapshot.Economy.NetValue >= 0 ? Color.LightGreen : Color.OrangeRed;
+        DrawPanel(410, 12, 264, 56, new Color(17, 30, 38, 226), economyAccent);
+        PixelFont.Draw(spriteBatch!, pixel!, "SHIFT VALUE", 424, 23, 1, economyAccent);
+        PixelFont.Draw(spriteBatch!, pixel!, economy.Summary, 424, 45, 1, Color.White, 38);
 
         var (serviceLabel, serviceAccent) = snapshot.ShiftTrial.Status switch
         {
@@ -1148,7 +1690,7 @@ public sealed class DishStationGame : Game
             PixelFont.Draw(spriteBatch!, pixel!, $"QUEST  {quest.Title}  {progress}%", 27, 86, 1, objectiveColor, 75);
             var prompt = snapshot.Onboarding.GuidanceMode switch
             {
-                GuidanceMode.Guided => ObjectiveFor(snapshot.TutorialStage),
+                GuidanceMode.Guided => GameplayHudPresenter.GuidedGoalHint(snapshot.TutorialStage, inputBindings),
                 GuidanceMode.Contextual => quest.ObservableOutcome.ToUpperInvariant(),
                 _ => "OPEN J FOR THE OUTCOME; READ THE WORLD FOR WHAT CHANGED.",
             };
@@ -1157,24 +1699,111 @@ public sealed class DishStationGame : Game
         else
         {
             PixelFont.Draw(spriteBatch!, pixel!, "FIRST SHIFT ARC COMPLETE", 27, 88, 1, Color.LightGreen);
-            PixelFont.Draw(spriteBatch!, pixel!, "PRESS K FOR THE SHIFT REPORT OR J TO REVIEW INDIVIDUAL DISCOVERIES.", 27, 107, 1, Color.White, 100);
+            PixelFont.Draw(spriteBatch!, pixel!, $"PRESS {Binding(GameInputAction.ShiftReportToggle)} FOR THE SHIFT REPORT OR {Binding(GameInputAction.JournalToggle)} TO REVIEW INDIVIDUAL DISCOVERIES.", 27, 107, 1, Color.White, 100);
         }
 
-        DrawPanel(14, 516, 996, 70, new Color(15, 27, 34, 235), selectedKind == DishKind.Glass ? Color.MediumTurquoise : selectedKind == DishKind.Tray ? Color.Goldenrod : Color.CornflowerBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, $"{Workstations[selectedWorkstation].Name}  /  {selectedKind.ToString().ToUpperInvariant()}", 28, 528, 1, Color.White);
-        var toolHint = DeveloperToolsAvailable ? "  F1 TOOLS" : "";
-        PixelFont.Draw(spriteBatch!, pixel!, $"CLICK WORK  Q/E SELECT  SPACE ACT  V LENS{toolHint}", 300, 528, 1, Color.LightGray, 55);
+        var processHint = snapshot.ProcessCapture.Active is { } activeCapture
+            ? $"{Binding(GameInputAction.ProcessCaptureToggle)} FINISH CAPTURE  •  {activeCapture.Steps.Length} STEPS"
+            : snapshot.ProcessCapture.Artifacts.Count > 0
+                ? $"{Binding(GameInputAction.ProcessCaptureToggle)} CAPTURE AGAIN  •  {Binding(GameInputAction.ProcessEditorToggle)} EDIT PROCESS"
+                : $"{Binding(GameInputAction.ProcessCaptureToggle)} CAPTURE MANUAL PROCESS";
+        DrawPanel(14, 454, 470, 32, new Color(17, 30, 38, 220), Color.MediumPurple);
+        PixelFont.Draw(spriteBatch!, pixel!, processHint, 28, 465, 1, Color.White, 64);
+
+        if (characterBarkSeconds > 0 && activeCharacterBark is { } bark)
+        {
+            var barkColor = bark.Priority == CharacterDialoguePriority.Critical ? Color.OrangeRed :
+                bark.Priority == CharacterDialoguePriority.Important ? Color.Goldenrod : Color.LightGray;
+            DrawPanel(494, 388, 516, 98, new Color(17, 30, 38, 238), barkColor);
+            PixelFont.Draw(spriteBatch!, pixel!, $"{bark.Speaker}  •  {bark.Role}", 510, 402, 1, barkColor, 70);
+            PixelFont.Draw(spriteBatch!, pixel!, bark.Line, 510, 428, 1, Color.White, 67);
+        }
+
+        DrawPanel(14, 496, 996, 90, new Color(15, 27, 34, 235), selectedKind == DishKind.Glass ? Color.MediumTurquoise : selectedKind == DishKind.Tray ? Color.Goldenrod : Color.CornflowerBlue);
+        var interactionTarget = CurrentInteractionFixture();
+        var interactionHud = GameplayHudPresenter.Interaction(
+            world.InteractionAt(interactionTarget, selectedKind),
+            selectedKind,
+            Binding(GameInputAction.Interact),
+            Binding(GameInputAction.Inspect),
+            MovementBindingLabel());
+        PixelFont.Draw(spriteBatch!, pixel!, $"TARGET {interactionHud.Target}  •  {interactionHud.State}", 28, 507, 1, Color.White, 90);
+        var toolHint = DeveloperToolsAvailable ? $"  {Binding(GameInputAction.DeveloperToggle)} TOOLS" : "";
+        PixelFont.Draw(spriteBatch!, pixel!, $"{interactionHud.ActionPrompt}{toolHint}", 28, 527, 1,
+            interactionHud.DisabledReason is null ? Color.LightGreen : Color.LightGray, 78);
+        DrawPanel(622, 522, 88, 26, new Color(31, 45, 51), Color.CornflowerBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.SettingsToggle)} SET", 638, 531, 1, Color.CornflowerBlue);
         DrawPanel(716, 522, 88, 26, new Color(31, 45, 51), Color.Goldenrod);
-        PixelFont.Draw(spriteBatch!, pixel!, "J QUEST", 729, 531, 1, Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.JournalToggle)} QUEST", 729, 531, 1, Color.Goldenrod);
         DrawPanel(810, 522, 88, 26, new Color(31, 45, 51), Color.LightSkyBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, "F12 HELP", 818, 531, 1, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{PrimaryBinding(GameInputAction.HelpClose)} HELP", 818, 531, 1, Color.LightSkyBlue);
         DrawPanel(904, 522, 88, 26, new Color(31, 45, 51), Color.LightGreen);
-        PixelFont.Draw(spriteBatch!, pixel!, "K REPORT", 912, 531, 1, Color.LightGreen);
-        PixelFont.Draw(spriteBatch!, pixel!, string.IsNullOrWhiteSpace(commandFeedback) ? "READY" : commandFeedback, 28, 549, 1, Color.LightGray, 139);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.ShiftReportToggle)} REPORT", 912, 531, 1, Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, interactionHud.DisabledReason ?? (string.IsNullOrWhiteSpace(commandFeedback) ? "READY" : commandFeedback),
+            28, 546, 1, interactionHud.DisabledReason is null ? Color.LightGray : Color.OrangeRed, 139);
+        if (audioCaptionSeconds > 0)
+            PixelFont.Draw(spriteBatch!, pixel!, audioCaption, 28, 557, 1, Color.Goldenrod, 139);
         if (snapshot.LatestNotification is { } note)
-            PixelFont.Draw(spriteBatch!, pixel!, $"{note.Title.ToUpperInvariant()}: {note.Message}", 28, 568, 1, Color.Yellow, 139);
+        {
+            var notification = GameplayHudPresenter.Notification(note);
+            PixelFont.Draw(spriteBatch!, pixel!, notification.Text, 28, 570, 1, NotificationColor(notification.Priority), 139);
+        }
 
         if (placementMode) DrawPlacementTools(snapshot);
+    }
+
+    private void DrawProcessEditor(ProcessCaptureSnapshot capture)
+    {
+        if (capture.ActiveEdit is null) return;
+        var view = ProcessEditorPresenter.Present(capture, selectedProcessStep);
+        DrawPanel(62, 86, 900, 414, new Color(17, 32, 43, 248), view.CanApply ? Color.LightGreen : Color.OrangeRed);
+        PixelFont.Draw(spriteBatch!, pixel!, "PROCESS EDITOR", 84, 105, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{view.Name.ToUpperInvariant()}  BASELINE V{view.BaselineVersion}  CURRENT V{view.CurrentVersion}  DRAFT FROM V{view.BasedOnVersion}", 84, 137, 1, Color.White, 120);
+        PixelFont.Draw(spriteBatch!, pixel!, $"ROUTING  {view.Routing}", 84, 160, 1, Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "ORDER  WORKSTATION       ACTION                  TRANSITION                          ASSIGNED", 84, 194, 1, Color.LightGray, 125);
+        var y = 220f;
+        foreach (var step in view.Steps)
+        {
+            if (step.Selected) DrawRect(78, y - 5, 854, 31, new Color(48, 73, 88));
+            PixelFont.Draw(spriteBatch!, pixel!, $"{step.Sequence,2}     {step.Workstation,-17} {step.Action,-23} {step.Transition,-35} {step.Assignment}", 88, y, 1,
+                step.Selected ? Color.Yellow : Color.White, 128);
+            y += 35;
+        }
+        PixelFont.Draw(spriteBatch!, pixel!, view.Validation, 84, 403, 1, view.CanApply ? Color.LightGreen : Color.OrangeRed, 125);
+        PixelFont.Draw(spriteBatch!, pixel!,
+            $"{Binding(GameInputAction.ProcessEditorPrevious)}/{Binding(GameInputAction.ProcessEditorNext)} SELECT   {Binding(GameInputAction.ProcessEditorMoveUp)}/{Binding(GameInputAction.ProcessEditorMoveDown)} REORDER   {Binding(GameInputAction.ProcessEditorToggleAssignment)} ASSIGN\n{Binding(GameInputAction.ProcessEditorNextRouting)} ROUTING   {Binding(GameInputAction.ProcessEditorApply)} VALIDATE + APPLY   {Binding(GameInputAction.ProcessEditorClose)} DISCARD",
+            84, 438, 1, Color.LightGray, 125);
+    }
+
+    private void DrawAutomationRuleEditor(AutomationSnapshot automation)
+    {
+        if (automation.ActiveEdit is null) return;
+        var view = AutomationRuleEditorPresenter.Present(automation, selectedAutomationRuleRow);
+        DrawPanel(82, 72, 860, 466, new Color(17, 32, 43, 248), view.CanApply ? Color.LightGreen : Color.OrangeRed);
+        PixelFont.Draw(spriteBatch!, pixel!, "AUTOMATION RULE EDITOR", 104, 91, 2, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, view.RuleId.ToUpperInvariant(), 104, 124, 1, Color.LightGray, 105);
+        var y = 158f;
+        foreach (var row in view.Rows)
+        {
+            if (row.Selected) DrawRect(98, y - 5, 390, 31, new Color(48, 73, 88));
+            PixelFont.Draw(spriteBatch!, pixel!, $"{row.Label,-25} {row.Value}", 108, y, 1,
+                row.Selected ? Color.Yellow : row.Editable ? Color.White : Color.LightGray, 58);
+            y += 39;
+        }
+        PixelFont.Draw(spriteBatch!, pixel!, "LATEST RULE EVIDENCE", 525, 158, 1, Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, string.Join('\n', view.TraceLines), 525, 186, 1, Color.White, 54);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Validation, 104, 405, 1,
+            view.CanApply ? Color.LightGreen : Color.OrangeRed, 105);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{view.BaselinePreset}\n{view.VariantPreset}", 104, 348, 1, Color.Goldenrod, 58);
+        PixelFont.Draw(spriteBatch!, pixel!, string.Join('\n', view.ComparisonLines), 525, 338, 1, Color.White, 54);
+        PixelFont.Draw(spriteBatch!, pixel!,
+            $"{Binding(GameInputAction.AutomationEditorPrevious)}/{Binding(GameInputAction.AutomationEditorNext)} SELECT   {Binding(GameInputAction.AutomationEditorToggleValue)} CHANGE   {Binding(GameInputAction.AutomationEditorApply)} APPLY   {Binding(GameInputAction.AutomationEditorClose)} DISCARD",
+            104, 443, 1, Color.LightGray, 105);
+        PixelFont.Draw(spriteBatch!, pixel!,
+            $"{Binding(GameInputAction.AutomationEditorSaveBaseline)} SAVE BASELINE   {Binding(GameInputAction.AutomationEditorSaveVariant)} SAVE VARIANT   {Binding(GameInputAction.AutomationEditorRunComparison)} RUN SAME-SEED COMPARE",
+            104, 468, 1, Color.LightGray, 105);
+        PixelFont.Draw(spriteBatch!, pixel!, "BOTH PRESETS FACE THE SAME STARTING CONDITIONS; COMPARE THE MEASURED CONSEQUENCES.",
+            104, 499, 1, Color.LightGray, 105);
     }
 
     private void DrawPlacementTools(DishStationSnapshot snapshot)
@@ -1184,7 +1813,7 @@ public sealed class DishStationGame : Game
         DrawPanel(722, 96, 288, 132, new Color(20, 42, 35, 238), accent);
         PixelFont.Draw(spriteBatch!, pixel!, "LAYOUT TOOLS", 738, 108, 2, accent);
         PixelFont.Draw(spriteBatch!, pixel!, $"FIXTURE  {PlacementLabel(placementFixture)}\nCELL     {placementPreview.X},{placementPreview.Y}\nPREVIEW  {(valid ? "VALID" : "BLOCKED")}\nROUTE    {snapshot.Layout.EstimatedRouteSteps} STEPS", 738, 137, 1, Color.White, 34);
-        PixelFont.Draw(spriteBatch!, pixel!, "Q/E ITEM  ARROWS MOVE\nENTER PLACE  BACK UNDO\nH RESET  M CLOSE", 882, 137, 1, Color.LightGray, 17);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.PlacementPrevious)}/{Binding(GameInputAction.PlacementNext)} ITEM  {Binding(GameInputAction.PlacementLeft)}/{Binding(GameInputAction.PlacementRight)}/{Binding(GameInputAction.PlacementUp)}/{Binding(GameInputAction.PlacementDown)} MOVE\n{Binding(GameInputAction.PlacementConfirm)} PLACE  {Binding(GameInputAction.PlacementUndo)} UNDO\n{Binding(GameInputAction.PlacementReset)} RESET  {Binding(GameInputAction.TogglePlacement)} CLOSE", 882, 137, 1, Color.LightGray, 17);
     }
 
     private void DrawGodTools()
@@ -1193,13 +1822,13 @@ public sealed class DishStationGame : Game
         {
             DrawPanel(32, 526, 960, 58, new Color(60, 22, 68, 245), new Color(214, 111, 232));
             PixelFont.Draw(spriteBatch!, pixel!, "SANDBOX TOOLS", 48, 539, 2, new Color(232, 151, 245));
-            PixelFont.Draw(spriteBatch!, pixel!, "F2 DIRTY  F3 CLEAN  F4 RESET  F5 PAUSE  F6 STEP\nF7 FAULT  F8 LAYOUT  F9 100K  F10 SAVE  F11 LOAD", 270, 537, 1, Color.White, 62);
+            PixelFont.Draw(spriteBatch!, pixel!, DeveloperBindingLegend(), 270, 537, 1, Color.White, 62);
             return;
         }
         DrawPanel(722, placementMode ? 238 : 96, 288, 146, new Color(60, 22, 68, 240), new Color(214, 111, 232));
         var y = placementMode ? 250 : 108;
         PixelFont.Draw(spriteBatch!, pixel!, "SANDBOX TOOLS", 738, y, 2, new Color(232, 151, 245));
-        PixelFont.Draw(spriteBatch!, pixel!, "F2 ADD DIRTY   F3 CLEAN\nF4 RESET       F5 PAUSE\nF6 STEP        F7 STICKY\nF8 LAYOUT      F9 100K\nF10 SAVE       F11 RESTORE", 738, y + 30, 1, Color.White, 36);
+        PixelFont.Draw(spriteBatch!, pixel!, DeveloperBindingLegend(true), 738, y + 30, 1, Color.White, 36);
     }
 
     private void DrawPanel(float x, float y, float width, float height, Color fill, Color accent)
@@ -1357,13 +1986,24 @@ public sealed class DishStationGame : Game
 
     private void DrawKnowledgeLens(DishStationSnapshot snapshot)
     {
+        var appliedProcess = snapshot.ProcessCapture.AppliedArtifactId is { } appliedId
+            ? snapshot.ProcessCapture.Artifacts.FirstOrDefault(artifact => artifact.Id == appliedId)
+            : null;
+        var flowDocumented = snapshot.NewHire.Specification.FlowDocumented || appliedProcess is not null;
+        var routingKnowledge = appliedProcess?.Current.RoutingPolicy switch
+        {
+            ProcessRoutingPolicy.GlassesFirst => "GLASS FIRST",
+            ProcessRoutingPolicy.PlatesFirst => "PLATES FIRST",
+            ProcessRoutingPolicy.CapturedOrder => "CAPTURED ORDER",
+            _ => KnowledgeFlag(snapshot.NewHire.Specification.RushGlassPriorityDocumented),
+        };
         DrawLensFrame("KNOWLEDGE LENS", "WHO KNOWS WHICH OPERATING FACTS, AND WHICH ASSUMPTION IS STILL UNSAFE?", new Color(183, 111, 210));
         DrawKnowledgeCard(60, "PLAYER / OBSERVED",
             $"FLOW STATES       KNOWN\nBOTTLENECK        {(snapshot.BottleneckHypothesis is null ? "UNCONFIRMED" : snapshot.BottleneckHypothesis.ToString()!.ToUpperInvariant())}\nSTICKY SIGNAL     {(snapshot.Automation.Incident.Recorded ? "DISCOVERED" : "UNKNOWN")}",
             snapshot.Automation.Incident.Recorded ? Color.LightGreen : Color.Yellow);
         DrawKnowledgeCard(360, $"NEW HIRE A{snapshot.NewHire.Id.Value} / EXPLICIT",
-            $"DISH FLOW        {KnowledgeFlag(snapshot.NewHire.Specification.FlowDocumented)}\nRUSH PRIORITY    {KnowledgeFlag(snapshot.NewHire.Specification.RushGlassPriorityDocumented)}\nRARE TRAY        {KnowledgeFlag(snapshot.NewHire.Specification.RareTrayHandlingDocumented)}",
-            snapshot.NewHire.Specification.RareTrayHandlingDocumented ? Color.LightGreen : Color.Yellow);
+            $"DISH FLOW        {KnowledgeFlag(flowDocumented)}\nROUTING          {routingKnowledge}\nRARE TRAY        {KnowledgeFlag(snapshot.NewHire.Specification.RareTrayHandlingDocumented)}",
+            flowDocumented ? Color.LightGreen : Color.Yellow);
         DrawKnowledgeCard(660, "AUTO RULE / ASSUMES",
             $"READY REPORT     TRUSTED\nPHYSICAL STATE   {(snapshot.Automation.Policy.RequirePhysicalReady ? "CORROBORATED" : "OMITTED")}\nMANUAL FALLBACK  RETAINED",
             snapshot.Automation.Policy.RequirePhysicalReady ? Color.LightGreen : Color.OrangeRed);
@@ -1406,7 +2046,7 @@ public sealed class DishStationGame : Game
         DrawResponsibilityNode(510, "START RULE", "OWNS ONE\nDECISION", new Color(42, 75, 91));
         DrawRect(700, 274, 35, 8, Color.Goldenrod);
         DrawResponsibilityNode(735, "PHYSICAL WASHER", "OWNS CYCLE\nAND OCCUPANCY", new Color(47, 77, 102));
-        PixelFont.Draw(spriteBatch!, pixel!, $"PEOPLE: PLAYER DEFINES AND RECOVERS; NEW HIRE A{snapshot.NewHire.Id.Value} EXECUTES DOCUMENTED WORK.\nSIMULATION: AUTHORITATIVE STATE AND CONSEQUENCES.  CLIENT: OBSERVES AND COMMANDS.", 60, 375, 1, Color.White, 115);
+        PixelFont.Draw(spriteBatch!, pixel!, "PEOPLE: YOU DEFINE AND RECOVER THE WORK; JULES FOLLOWS WHAT THE CREW HAS SHARED.\nSTATION: DISHES, DEMAND, AND THE PHYSICAL WASHER DETERMINE THE CONSEQUENCES.", 60, 375, 1, Color.White, 115);
         PixelFont.Draw(spriteBatch!, pixel!, "BLAST RADIUS: STICKY READY CAN MISLEAD AUTO START, BUT CANNOT REWRITE PHYSICAL STATE.\nHALT AND MANUAL FALLBACK CONTAIN THE INCIDENT.", 60, 419, 1, Color.LightGreen, 115);
     }
 
@@ -1556,8 +2196,30 @@ public sealed class DishStationGame : Game
     private void SelectWorkstation(int offset)
     {
         selectedWorkstation = (selectedWorkstation + offset + Workstations.Length) % Workstations.Length;
-        commandFeedback = $"Selected {Workstations[selectedWorkstation].Name}. Press Space to work.";
+        selectedInteractionFixture = (DishStationFixture)selectedWorkstation;
+        commandFeedback = $"Selected {Workstations[selectedWorkstation].Name}. Approach it, then press E to work or F to inspect.";
         UpdateWindowTitle();
+    }
+
+    private DishStationFixture CurrentInteractionFixture() => GameplayInteractionResolver.Resolve(
+        world.PlayerCell,
+        world.Placements,
+        selectedInteractionFixture);
+
+    private void PerformContextInteraction()
+    {
+        var fixture = CurrentInteractionFixture();
+        selectedInteractionFixture = fixture;
+        if (fixture != DishStationFixture.Service) selectedWorkstation = (int)fixture;
+        Execute(new InteractWithDishStationFixtureCommand(world.Tick, fixture, selectedKind));
+    }
+
+    private void InspectContextInteraction()
+    {
+        var fixture = CurrentInteractionFixture();
+        selectedInteractionFixture = fixture;
+        if (fixture != DishStationFixture.Service) selectedWorkstation = (int)fixture;
+        Execute(new InspectDishStationFixtureCommand(world.Tick, fixture, selectedKind));
     }
 
     private void SelectWorkstationFromMouse()
@@ -1582,53 +2244,134 @@ public sealed class DishStationGame : Game
             var destination = IsometricStationScene.FloorHitTest(point.X, point.Y, camera);
             if (destination is { } moveTarget)
             {
-                lastPointerAction = $"FLOOR:MOVE";
-                Execute(new MovePlayerCommand(world.Tick, moveTarget));
+                RequestClickMovement(moveTarget, "FLOOR");
             }
             return;
         }
-        var hit = IsometricStationScene.HitTest(point.X, point.Y, world.Placements, camera);
+        var hit = IsometricStationScene.HitTest(point.X, point.Y, world.Placements, camera,
+            presentationCatalog, washerProjection is not null);
         if (hit is not { } fixture)
         {
             var floorTarget = IsometricStationScene.FloorHitTest(point.X, point.Y, camera);
             if (floorTarget is { } target)
             {
-                lastPointerAction = "FLOOR:MOVE";
-                Execute(new MovePlayerCommand(world.Tick, target));
+                RequestClickMovement(target, "FLOOR");
             }
             return;
         }
         if (fixture == DishStationFixture.Service)
         {
-            var available = world.At(DishState.Available);
-            lastPointerAction = "Service:INSPECT";
-            commandFeedback = $"SERVICE: P{available.Plates} G{available.Glasses} T{available.Trays} available; {world.Snapshot().ServiceShortages} shortages.";
-            UpdateWindowTitle();
+            selectedInteractionFixture = fixture;
+            var servicePort = world.Topology.InteractionPort(fixture);
+            if (world.PlayerCell != servicePort)
+            {
+                RequestClickMovement(world.Placements.At(fixture), "Service");
+            }
+            else
+            {
+                lastPointerAction = "Service:INSPECT";
+                Execute(new InspectDishStationFixtureCommand(world.Tick, fixture, selectedKind));
+            }
             return;
         }
         var index = (int)fixture;
         selectedWorkstation = index;
-        var fixtureCell = world.Placements.At(fixture);
-        if (world.PlayerCell != fixtureCell)
+        selectedInteractionFixture = fixture;
+        var fixturePort = world.Topology.InteractionPort(fixture);
+        if (world.PlayerCell != fixturePort)
         {
-            lastPointerAction = $"{fixture}:MOVE";
-            Execute(new MovePlayerCommand(world.Tick, fixtureCell));
+            RequestClickMovement(world.Placements.At(fixture), fixture.ToString());
         }
         else
         {
             lastPointerAction = $"{fixture}:WORK";
-            Perform(Workstations[index].Action);
+            Execute(new InteractWithDishStationFixtureCommand(world.Tick, fixture, selectedKind));
         }
+    }
+
+    private void RequestClickMovement(FloorCell destination, string label)
+    {
+        if (clickMovement.Begin(world.PlayerCell, destination, world.Placements))
+        {
+            lastPointerAction = $"{label}:ROUTE:{clickMovement.PendingSteps}";
+            commandFeedback = clickMovement.PendingSteps == 0 ? "Already at that destination." : $"Walking {clickMovement.PendingSteps} steps.";
+            clickMovementRepeatRemaining = 0;
+        }
+        else
+        {
+            lastPointerAction = $"{label}:BLOCKED";
+            commandFeedback = "BLOCKED: No walkable route reaches that destination.";
+        }
+        UpdateWindowTitle();
+    }
+
+    private void HandleMouseCameraInput()
+    {
+        var changed = false;
+        if (Input.IsMouseButtonDown(MouseButton.Middle))
+        {
+            UpdateCanvasTransform();
+            var delta = Input.AbsoluteMouseDelta;
+            if (delta.X != 0 || delta.Y != 0)
+            {
+                camera = GameplayCameraInput.ApplyMiddleDrag(camera, delta.X, delta.Y, canvasScale,
+                    clientSettings.CameraSensitivityPercent / 100f);
+                changed = true;
+            }
+        }
+
+        var wheelDelta = Input.MouseWheelDelta;
+        if (wheelDelta != 0)
+        {
+            camera = GameplayCameraInput.ApplyWheel(camera, wheelDelta,
+                clientSettings.CameraSensitivityPercent / 100f);
+            changed = true;
+        }
+
+        if (!changed) return;
+        commandFeedback = $"Camera view: pan {camera.OffsetX:0},{camera.OffsetY:0}; zoom {camera.Zoom:0.0}.";
+        UpdateWindowTitle();
     }
 
     private float InteractionPulse() => renderReducedMotion ? 0 : (MathF.Sin(interactionTime * 6f) + 1f) * 2f;
 
+    private void EmitAudio(AudioCueEmission emission)
+    {
+        audioPresenter?.Play(emission);
+        audioCaption = emission.Caption;
+        audioCaptionSeconds = emission.Looping ? 2f : 2.75f;
+    }
+
+    private void InitializeDialogue(DishStationSnapshot snapshot)
+    {
+        dialogueRouter.Reset();
+        observedNarrativeEvents = snapshot.NarrativeEvents.Count;
+        activeCharacterBark = null;
+        characterBarkSeconds = 0;
+    }
+
+    private void ObserveDialogue(DishStationSnapshot snapshot)
+    {
+        if (observedNarrativeEvents > snapshot.NarrativeEvents.Count) InitializeDialogue(snapshot);
+        while (observedNarrativeEvents < snapshot.NarrativeEvents.Count)
+        {
+            var narrativeEvent = snapshot.NarrativeEvents[observedNarrativeEvents++];
+            if (dialogueRouter.Resolve(narrativeEvent) is not { } bark) continue;
+            activeCharacterBark = CharacterDialoguePresenter.Present(bark);
+            characterBarkSeconds = bark.Priority == CharacterDialoguePriority.Critical ? 7f : 5f;
+        }
+    }
+
     private string InteractionLabel()
     {
         if (placementMode) return IsPlacementPreviewValid() ? "PLACE" : "BLOCKED";
-        if (hoveredFixture == DishStationFixture.Service) return "INSPECT";
         if (hoveredFixture is { } fixture)
-            return world.PlayerCell == world.Placements.At(fixture) ? "WORK" : "MOVE";
+        {
+            var interaction = world.InteractionAt(fixture, selectedKind);
+            if (!interaction.IsInRange) return "MOVE";
+            if (fixture == DishStationFixture.Service) return "INSPECT";
+            return interaction.CanWork ? "WORK" : "BLOCKED";
+        }
         return IsometricStationScene.FloorHitTest(VirtualMousePosition().X, VirtualMousePosition().Y, camera) is null ? "" : "MOVE";
     }
 
@@ -1638,6 +2381,15 @@ public sealed class DishStationGame : Game
         "BLOCKED" => Color.OrangeRed,
         "INSPECT" => Color.Goldenrod,
         _ => Color.DeepSkyBlue,
+    };
+
+    private static Color NotificationColor(HudNotificationPriority priority) => priority switch
+    {
+        HudNotificationPriority.Ambient => Color.LightGray,
+        HudNotificationPriority.Operational => Color.LightSkyBlue,
+        HudNotificationPriority.Important => Color.Yellow,
+        HudNotificationPriority.Critical => Color.OrangeRed,
+        _ => Color.White,
     };
 
     private void DrawInteractionCursor()
@@ -1689,16 +2441,35 @@ public sealed class DishStationGame : Game
         var mouse = Input.MousePosition;
         var physicalX = mouse.X * GraphicsDevice.Presenter.BackBuffer.Width;
         var physicalY = mouse.Y * GraphicsDevice.Presenter.BackBuffer.Height;
-        return new Vector2((physicalX - canvasOffsetX) / canvasScale, (physicalY - canvasOffsetY) / canvasScale);
+        var point = new ClientCanvasTransform(canvasScale, canvasOffsetX, canvasOffsetY).ToVirtual(physicalX, physicalY);
+        return new Vector2(point.X, point.Y);
     }
+
+    private Vector2 UiMousePosition()
+    {
+        UpdateCanvasTransform();
+        var mouse = Input.MousePosition;
+        var physicalX = mouse.X * GraphicsDevice.Presenter.BackBuffer.Width;
+        var physicalY = mouse.Y * GraphicsDevice.Presenter.BackBuffer.Height;
+        var point = new ClientCanvasTransform(uiCanvasScale, uiCanvasOffsetX, uiCanvasOffsetY).ToVirtual(physicalX, physicalY);
+        return new Vector2(point.X, point.Y);
+    }
+
+    private Matrix UiCanvasTransform() =>
+        Matrix.Scaling(uiCanvasScale, uiCanvasScale, 1) * Matrix.Translation(uiCanvasOffsetX, uiCanvasOffsetY, 0);
 
     private void UpdateCanvasTransform()
     {
         var width = GraphicsDevice.Presenter.BackBuffer.Width;
         var height = GraphicsDevice.Presenter.BackBuffer.Height;
-        canvasScale = Math.Max(0.5f, Math.Min(width / VirtualWidth, height / VirtualHeight));
-        canvasOffsetX = (width - VirtualWidth * canvasScale) * 0.5f;
-        canvasOffsetY = (height - VirtualHeight * canvasScale) * 0.5f;
+        var worldCanvas = ClientCanvasLayout.Fit(width, height, VirtualWidth, VirtualHeight);
+        canvasScale = worldCanvas.Scale;
+        canvasOffsetX = worldCanvas.OffsetX;
+        canvasOffsetY = worldCanvas.OffsetY;
+        var uiCanvas = ClientCanvasLayout.Fit(width, height, VirtualWidth, VirtualHeight, clientSettings.UiScalePercent);
+        uiCanvasScale = uiCanvas.Scale;
+        uiCanvasOffsetX = uiCanvas.OffsetX;
+        uiCanvasOffsetY = uiCanvas.OffsetY;
     }
 
     private void SelectPlacementFixture(int offset)
@@ -1787,7 +2558,18 @@ public sealed class DishStationGame : Game
         var height = GraphicsDevice.Presenter.BackBuffer.Height;
         var pointer = hoveredFixture?.ToString() ?? "FLOOR";
         var progression = world.Snapshot().Progression;
-        var menu = startMenuVisible ? newCareerConfirmation ? "confirm-new" : startMenuSelection == 0 ? "continue" : "new" : "closed";
+        var diagnosticTitle = !string.IsNullOrWhiteSpace(driverControlFile) || developerToolsOptIn || diagnosticTitleOptIn;
+        if (!diagnosticTitle)
+        {
+            Window.Title = FirstShiftNarrativePresenter.WindowTitle(StartMenuVisible, BriefingVisible, progression.ActiveQuest);
+            return;
+        }
+        var menu = StartMenuVisible ? NewCareerConfirmationVisible ? "confirm-new" : startMenuSelection switch
+        {
+            0 => "continue",
+            1 => "new",
+            _ => "settings",
+        } : "closed";
         var comfort = world.IntroComplete
             ? $"motion={(world.Snapshot().Onboarding.ReducedMotion ? "reduced" : "full")},contrast={(world.Snapshot().Onboarding.HighContrast ? "high" : "standard")}"
             : $"motion={(selectedReducedMotion ? "reduced" : "full")},contrast={(selectedHighContrast ? "high" : "standard")}";
@@ -1795,39 +2577,8 @@ public sealed class DishStationGame : Game
         var receipt = progressionReceiptSeconds > 0 && progressionReceiptQuest is { } receiptQuest
             ? $"{receiptQuest}:L{progressionReceiptLevel}"
             : "none";
-        Window.Title = $"The Automation Game — [menu={menu}] [save={saveStatus}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={questJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={questDetailVisible}] [report={shiftReportVisible}] [help={helpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [ui={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] {note}";
+        Window.Title = $"The Automation Game — [room={roomPresentationStatus}] [screen={screenRouter.Screen}] [modal={screenRouter.Modal}] [menu={menu}] [save={saveStatus}] [settings={settingsStatus}] [window={clientSettings.WindowMode}] [volume={clientSettings.MasterVolumePercent}] [ui={clientSettings.UiScalePercent}] [cameraSensitivity={clientSettings.CameraSensitivityPercent}] [evidence={playtestEvidenceStatus}] [intro={(world.IntroComplete ? "done" : $"{introPage + 1}/5:{selectedGuidance}")}] [comfort={comfort}] [quest={progression.ActiveQuest?.ToString() ?? "complete"}] [journal={QuestJournalVisible}] [journalQuest={(DishStationQuestId)selectedJournalQuest}] [detail={QuestDetailVisible}] [report={ShiftReportVisible}] [help={HelpVisible}] [level={progression.Level}] [xp={progression.Experience}] [receipt={receipt}] [stage={world.TutorialStage}] [trial={trial.Status}:{trial.SuccessfulDemandChecks}/{trial.TargetDemandChecks}] [lens={activeLens}] [fullscreen={fullscreenPresentation}] [god={godMode}] [tools={(DeveloperToolsAvailable ? "available" : "locked")}] [station={Workstations[selectedWorkstation].Name}] [pointer={pointer}:{InteractionLabel()}] [click={lastPointerAction}] [layout={world.Layout}] [build={placementMode}] [route={world.Placements.EstimatedRouteSteps}] [player={world.PlayerCell.X},{world.PlayerCell.Y}] [zoom={camera.Zoom:0.00}] [cam={camera.OffsetX:0},{camera.OffsetY:0}] [viewport={width}x{height}] [canvas={canvasScale:0.00}] [benchmark={(benchmarkVisible ? "on" : "off")}] [paused={paused}] [tick={world.Tick.Value}] [dirty={world.At(DishState.Dirty).Total}] {note}";
     }
-
-    private static string ObjectiveFor(DishTutorialStage stage) => stage switch
-    {
-        DishTutorialStage.RestockFirstDish => "RESTOCK ONE CLEAN PLATE",
-        DishTutorialStage.EnableDinnerRush => "ENABLE THE DINNER RUSH WITH R",
-        DishTutorialStage.AwaitServiceShortage => "KEEP UP AND WATCH SERVICE SUPPLY",
-        DishTutorialStage.InspectShortage => "PRESS L TO INSPECT QUEUE EVIDENCE",
-        DishTutorialStage.ChooseBottleneck => "SELECT THE CONSTRAINING WORKSTATION AND PRESS B",
-        DishTutorialStage.ImproveLayout => "PRESS G TO ARRANGE A SHORTER U-SHAPED FLOW CELL",
-        DishTutorialStage.ValidateBottleneck => "MOVE ONE GLASS THROUGH THE FULL PROCESS",
-        DishTutorialStage.AwaitValidationDemand => "WATCH WHETHER SERVICE CONSUMES THE CLEAN GLASS",
-        DishTutorialStage.InviteNewHire => "PRESS N TO BRING THE NEW HIRE ON SHIFT",
-        DishTutorialStage.TrainNewHire => "PRESS T TO TRANSFER THE HAPPY-PATH DISH FLOW",
-        DishTutorialStage.ObserveNewHire => "OBSERVE THE DELEGATED PROCESS DURING THE RUSH",
-        DishTutorialStage.DocumentGlassPriority => "PRESS Y TO ADD THE MISSING RUSH GLASS PRIORITY",
-        DishTutorialStage.ValidateDelegation => "LET THE NEW HIRE RESTORE A GLASS TO SERVICE",
-        DishTutorialStage.ObserveRareTray => "OBSERVE HOW THE NEW HIRE HANDLES THE RARE TRAY",
-        DishTutorialStage.DocumentRareTray => "PRESS U TO DOCUMENT THE RARE TRAY ORIENTATION",
-        DishTutorialStage.ValidateRareTray => "LET THE NEW HIRE RETRY THE RARE TRAY",
-        DishTutorialStage.OfferAutomation => "PRESS A TO ENABLE REPORTED-READY AUTO START",
-        DishTutorialStage.ObserveAutomation => "OBSERVE SEVERAL AUTOMATED WASHER CYCLES",
-        DishTutorialStage.InvestigateAutomation => "PRESS I TO INSPECT THE AUTOMATION INCIDENT",
-        DishTutorialStage.ReplayAutomation => "PRESS P TO REPLAY THE FAILED DECISION",
-        DishTutorialStage.RefineAutomation => "PRESS S TO REQUIRE PHYSICAL READY CORROBORATION",
-        DishTutorialStage.ValidateAutomation => "RE-RUN THE STICKY READY CONDITION",
-        DishTutorialStage.ValidateRegression => "PRESS P TO REPLAY THE INCIDENT AS A REGRESSION",
-        DishTutorialStage.ShiftReview => "STAGE CLEAN GLASSES, THEN PRESS W TO OPEN THE RELIABILITY WINDOW",
-        DishTutorialStage.ValidateShift => "KEEP SERVICE SUPPLIED THROUGH THREE LIVE DEMAND CHECKS",
-        DishTutorialStage.EpisodeComplete => "EPISODE COMPLETE - PRESS K FOR THE FIRST SHIFT REPORT",
-        _ => "OBSERVE THE STATION",
-    };
 
     private readonly record struct WorkstationPresentation(
         string Name,
@@ -1855,9 +2606,18 @@ internal enum ClientControl
     ToggleQuestDetail,
     JournalBack,
     ToggleShiftReport,
+    ToggleSettings,
+    SettingsPrevious,
+    SettingsNext,
+    SettingsDecrease,
+    SettingsIncrease,
+    SettingsConfirm,
+    SettingsReset,
     PreviousWorkstation,
     NextWorkstation,
     ContextWork,
+    ContextInteract,
+    ContextInspect,
     Scrape,
     Rack,
     StartWasher,
@@ -1871,14 +2631,31 @@ internal enum ClientControl
     TrainHappyPath,
     TrainRushPriority,
     TrainRareTray,
-    EnableReportedAutomation,
     InspectIncident,
     ReplayIncident,
     ToggleIncidentLens,
     NextLens,
-    EnableSafeAutomation,
     StartShiftTrial,
     ToggleProcessLens,
+    ToggleProcessCapture,
+    ToggleProcessEditor,
+    ProcessEditorPrevious,
+    ProcessEditorNext,
+    ProcessEditorMoveUp,
+    ProcessEditorMoveDown,
+    ProcessEditorToggleAssignment,
+    ProcessEditorNextRouting,
+    ProcessEditorApply,
+    ProcessEditorClose,
+    ToggleAutomationEditor,
+    AutomationEditorPrevious,
+    AutomationEditorNext,
+    AutomationEditorToggleValue,
+    AutomationEditorApply,
+    AutomationEditorClose,
+    AutomationEditorSaveBaseline,
+    AutomationEditorSaveVariant,
+    AutomationEditorRunComparison,
     ToggleGodMode,
     GodAddDirty,
     GodSetCleanSupply,

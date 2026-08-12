@@ -1,0 +1,28 @@
+template_schema_version: 1
+template_id: template.workstation.restaurant.state-inspection
+template_version: 1
+
+parameters:
+  workstation-slug: token
+
+content: |
+  schema_version: 1
+  industries:
+    - id: industry.restaurant
+      display_name: Restaurant
+  items:
+    - id: item.restaurant.dish
+      industry: industry.restaurant
+      display_name: Dish
+      states: [dirty]
+  workstations:
+    - id: workstation.restaurant.{{parameter:workstation-slug}}
+      industry: industry.restaurant
+      display_name: State Inspection Point
+      accepted_items: [item.restaurant.dish]
+      input_state: dirty
+      output_state: dirty
+      presentation: presentation.workstation.inspection.standard
+      presentation_fallback: presentation.fallback.workstation
+      inspection:
+        observation: state-counts

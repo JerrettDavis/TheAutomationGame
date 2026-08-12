@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Automation.Client.Stride\Automation.Client.Stride.csproj" />
     <ProjectReference Include="..\..\src\Automation.Content\Automation.Content.csproj" />
     <ProjectReference Include="..\..\src\Automation.Domain\Automation.Domain.csproj" />
     <ProjectReference Include="..\..\src\Automation.Persistence\Automation.Persistence.csproj" />

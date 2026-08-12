@@ -1,0 +1,31 @@
+namespace Automation.Domain;
+
+public enum DishTutorialStage
+{
+    RestockFirstDish,
+    EnableDinnerRush,
+    AwaitServiceShortage,
+    InspectShortage,
+    ChooseBottleneck,
+    ImproveLayout,
+    ValidateBottleneck,
+    AwaitValidationDemand,
+    InviteNewHire,
+    TrainNewHire,
+    ObserveNewHire,
+    DocumentGlassPriority,
+    ValidateDelegation,
+    ObserveRareTray,
+    DocumentRareTray,
+    ValidateRareTray,
+    OfferAutomation,
+    ObserveAutomation,
+    InvestigateAutomation,
+    ReplayAutomation,
+    RefineAutomation,
+    ValidateAutomation,
+    ValidateRegression,
+    ShiftReview,
+    ValidateShift,
+    EpisodeComplete,
+}

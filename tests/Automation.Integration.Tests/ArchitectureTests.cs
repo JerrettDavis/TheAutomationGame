@@ -75,7 +75,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void JsonCheckpointRestoresMidpointAndFutureCommandsDeterministically()
     {
-        var original = new DishStationWorld(31);
+        var original = IntegrationTestScenario.World(31);
         original.Schedule(new PerformDishActionCommand(new(1), DishAction.Scrape, DishKind.Plate));
         original.Schedule(new PerformDishActionCommand(new(2), DishAction.Rack, DishKind.Plate));
         original.Schedule(new PerformDishActionCommand(new(3), DishAction.StartWasher, DishKind.Plate));
@@ -104,7 +104,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void JsonCheckpointPreservesOnboardingQuestAndLevelProgress()
     {
-        var world = new DishStationWorld(57);
+        var world = IntegrationTestScenario.World(57);
         world.ExecuteNow(new CompleteIntroCommand(world.Tick, GuidanceMode.Minimal, true, true));
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Scrape, DishKind.Plate));
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Rack, DishKind.Plate));
@@ -129,11 +129,11 @@ public sealed class ArchitectureTests
         var path = Path.Combine(directory, "career.json");
         try
         {
-            var early = new DishStationWorld(11);
+            var early = IntegrationTestScenario.World(11);
             early.ExecuteNow(new CompleteIntroCommand(early.Tick, GuidanceMode.Guided));
             DishStationSaveStore.SaveFileAtomic(path, early);
 
-            var later = new DishStationWorld(12);
+            var later = IntegrationTestScenario.World(12);
             later.ExecuteNow(new CompleteIntroCommand(later.Tick, GuidanceMode.Contextual));
             later.Advance();
             DishStationSaveStore.SaveFileAtomic(path, later);
@@ -157,7 +157,7 @@ public sealed class ArchitectureTests
         var path = Path.Combine(directory, "first-hours.json");
         try
         {
-            var snapshot = new DishStationWorld(91).Snapshot();
+            var snapshot = IntegrationTestScenario.World(91).Snapshot();
             var evidence = new FirstHoursPlaytestEvidence(
                 FirstHoursPlaytestEvidence.CurrentSchemaVersion,
                 "session-91",
@@ -200,7 +200,7 @@ public sealed class ArchitectureTests
     [Fact]
     public void PlaytestEvidenceFactoryRejectsAnIncompleteCareer()
     {
-        var snapshot = new DishStationWorld(92).Snapshot();
+        var snapshot = IntegrationTestScenario.World(92).Snapshot();
 
         Assert.Throws<InvalidOperationException>(() => FirstHoursPlaytestEvidence.Create(
             "incomplete",
@@ -248,8 +248,10 @@ public sealed class ArchitectureTests
         Assert.Equal(left.Progression.Quests.ToArray(), right.Progression.Quests.ToArray());
         Assert.Equal(left.Progression.UnlockedCapabilities.ToArray(), right.Progression.UnlockedCapabilities.ToArray());
         Assert.Equal(left.ShiftTrial, right.ShiftTrial);
+        Assert.Equal(left.Economy, right.Economy);
         Assert.Equal(left.ShiftReport, right.ShiftReport);
         Assert.Equal(left.RecentTransitions.ToArray(), right.RecentTransitions.ToArray());
+        Assert.Equal(left.NarrativeEvents.ToArray(), right.NarrativeEvents.ToArray());
         Assert.Equal(expected.Notifications, actual.Notifications);
     }
 }

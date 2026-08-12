@@ -1,0 +1,28 @@
+template_schema_version: 1
+template_id: template.incident.restaurant.capacity-loss
+template_version: 1
+parameters:
+  incident-slug: token
+  duration-ticks: positive_integer
+  lost-slots: positive_integer
+variants:
+  trigger-tick:
+    kind: non_negative_integer
+    options: [1, 2, 3]
+content: |
+  schema_version: 1
+  industries:
+    - id: industry.restaurant
+      display_name: Restaurant
+  incidents:
+    - id: incident.restaurant.{{parameter:incident-slug}}
+      industry: industry.restaurant
+      display_name: Rack Capacity Loss
+      trigger_at_tick: {{variant:trigger-tick}}
+      scope: dish-station
+      observable: Part of the rack is unavailable and new work backs up sooner.
+      evidence: Rack admission rejects work at the reduced effective capacity.
+      recovery: The unavailable rack slots return to service.
+      capacity_loss:
+        duration_ticks: {{parameter:duration-ticks}}
+        lost_slots: {{parameter:lost-slots}}

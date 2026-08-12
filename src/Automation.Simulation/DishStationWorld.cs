@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Automation.Domain;
 
 namespace Automation.Simulation;
@@ -8,6 +9,7 @@ public sealed class DishStationWorld
     private readonly List<RecordedCommandInvocation> commandJournal = new(64);
     private bool replaying;
     private readonly List<WorldNotification> notifications = new(32);
+    private readonly List<DishStationNarrativeEvent> narrativeEvents = new(8);
     private readonly List<DishTransitionEntry> dishTransitions = new(24);
     private DishTransitionEntry[] dishTransitionSnapshot = [];
     private readonly DishCounts[] dishes = new DishCounts[Enum.GetValues<DishState>().Length];
@@ -41,6 +43,9 @@ public sealed class DishStationWorld
     private int newHireGlassActions;
     private int newHireTrayActions;
     private int trayReworkIncidents;
+    private int playerWorkActions;
+    private int staffedTicks;
+    private bool flowCellInvestmentPurchased;
     private bool newHireEnabled;
     private bool omittedPriorityObserved;
     private bool workerDeliveredGlass;
@@ -54,6 +59,11 @@ public sealed class DishStationWorld
     private int layoutComparisonStartSteps;
     private int validatedRouteSteps;
     private WasherAutomationPolicy automationPolicy;
+    private AutomationRule activeAutomationRule = DishStationAutomationRules.ForPolicy(WasherAutomationPolicy.Off);
+    private AutomationRuleEditDraft? activeAutomationRuleEdit;
+    private AutomationRulePreset? automationBaselinePreset;
+    private AutomationRulePreset? automationVariantPreset;
+    private AutomationComparisonResult? latestAutomationComparison;
     private bool automationHalted;
     private bool stickyReadySignal;
     private int automatedStarts;
@@ -62,6 +72,8 @@ public sealed class DishStationWorld
     private bool safetyBlockActive;
     private readonly List<AutomationTraceEntry> automationTrace = new(24);
     private AutomationTraceEntry[] automationTraceSnapshot = [];
+    private readonly List<AutomationRuleTraceEntry> automationRuleTrace = new(24);
+    private AutomationRuleTraceEntry[] automationRuleTraceSnapshot = [];
     private AutomationIncidentRecord? automationIncident;
     private int automationReplayCount;
     private bool automationHasReplay;
@@ -86,13 +98,36 @@ public sealed class DishStationWorld
     private long shiftTrialStartedAtTick = -1;
     private long shiftTrialCompletedAtTick = -1;
     private ShiftReportSnapshot shiftReport;
+    private readonly List<ActiveDishStationIncident> activeIncidents = new(6);
+    private readonly List<DishStationIncidentTraceEntry> incidentTrace = new(24);
+    private ActiveDishStationIncidentSnapshot[] activeIncidentSnapshot = [];
+    private DishStationIncidentTraceEntry[] incidentTraceSnapshot = [];
+    private int incidentProcessDelayTicks;
+    private int incidentCapacityLoss;
+    private bool incidentBadSensor;
+    private bool incidentBlockedResource;
+    private bool incidentWorkerAbsent;
+    private bool incidentDemandSpike;
+    private DishKind incidentDemandKind;
+    private int incidentDemandIntervalTicks;
+    private readonly ActorId playerActorId = new(0);
+    private int nextProcessCaptureId = 1;
+    private int nextProcessArtifactId = 1;
+    private MutableProcessCapture? activeProcessCapture;
+    private readonly List<PlayerOwnedProcessArtifact> processArtifacts = new(4);
+    private readonly List<ProcessCaptureEvent> processCaptureEvents = new(24);
+    private PlayerOwnedProcessArtifact[] processArtifactSnapshot = [];
+    private ProcessCaptureEvent[] processCaptureEventSnapshot = [];
+    private MutableProcessEdit? activeProcessEdit;
+    private PlayerProcessArtifactId? appliedProcessArtifactId;
 
     private const int ShiftTrialTargetDemandChecks = 3;
 
-    public DishStationWorld(int seed = 42, DishStationScenarioConfiguration? configuration = null)
+    public DishStationWorld(int seed, DishStationScenarioConfiguration configuration)
     {
         Seed = seed;
-        Configuration = (configuration ?? new DishStationScenarioConfiguration()).Validate();
+        ArgumentNullException.ThrowIfNull(configuration);
+        Configuration = configuration.Validate();
         ApplyScenarioStart();
     }
 
@@ -108,10 +143,11 @@ public sealed class DishStationWorld
     public DishState? BottleneckHypothesis { get; private set; }
     public DishKind LastShortageKind { get; private set; } = DishKind.Glass;
     public bool NewHireEnabled => newHireEnabled;
-    public bool WasherPhysicalReady => !WasherOccupied;
-    public bool WasherReportedReady => stickyReadySignal || WasherPhysicalReady;
+    public bool WasherPhysicalReady => !WasherOccupied && !incidentBlockedResource;
+    public bool WasherReportedReady => incidentBadSensor || stickyReadySignal || WasherPhysicalReady;
     public DishStationLayout Layout => layout;
     public DishStationPlacements Placements => placements;
+    public DishStationTopology Topology => new(placements);
     public FloorCell PlayerCell => playerCell;
     public IReadOnlyList<WorldNotification> Notifications => notifications;
     public bool IntroComplete => introComplete;
@@ -196,10 +232,11 @@ public sealed class DishStationWorld
     public void Advance()
     {
         Tick += 1;
+        ExpireIncidents();
         if (!tutorialStarted)
         {
             tutorialStarted = true;
-            Notify("Clock In", "Move one plate through the station. Start by scraping a dirty plate.");
+            Notify("Clock In", "Avery needs one clean plate before service opens. Ray points you toward the dirty landing.");
         }
 
         while (pendingCommands.TryPeek(out var command) && command.ExecuteAtTick.Value <= Tick.Value)
@@ -222,9 +259,9 @@ public sealed class DishStationWorld
         AdvanceNewHire();
         AdvanceAutomation();
 
-        if (RushEnabled && Tick.Value % Configuration.DemandIntervalTicks == 0)
+        if (EffectiveRushEnabled && Tick.Value % EffectiveDemandIntervalTicks == 0)
         {
-            ConsumeForService(Configuration.DemandKind);
+            ConsumeForService(EffectiveDemandKind);
         }
 
         AdvanceShiftTrial();
@@ -275,7 +312,7 @@ public sealed class DishStationWorld
             FindBottleneck(),
             WasherRunning,
             WasherOccupied,
-            RushEnabled,
+            EffectiveRushEnabled,
             Completed,
             ServiceShortages,
             TutorialStage,
@@ -283,11 +320,15 @@ public sealed class DishStationWorld
             CaptureNewHireSnapshot(),
             CaptureLayoutSnapshot(),
             CaptureAutomationSnapshot(),
+            new(activeIncidentSnapshot, incidentTraceSnapshot),
+            CaptureProcessSnapshot(),
             CaptureOnboardingSnapshot(),
             CaptureShiftTrialSnapshot(),
+            CaptureEconomySnapshot(),
             shiftReport,
             CaptureProgressionSnapshot(),
             dishTransitionSnapshot,
+            narrativeEvents.ToArray(),
             notifications.Count == 0 ? null : notifications[^1]);
     }
 
@@ -307,13 +348,32 @@ public sealed class DishStationWorld
             ConfigureDishStationLayoutCommand configure => ConfigureLayout(configure.Layout),
             PlaceDishStationFixtureCommand place => PlaceFixture(place.Fixture, place.Cell),
             MovePlayerCommand move => MovePlayer(move.Destination),
+            InteractWithDishStationFixtureCommand interact => InteractWithFixture(interact.Fixture, interact.Kind),
+            InspectDishStationFixtureCommand inspect => InspectFixture(inspect.Fixture, inspect.Kind),
             SetNewHireEnabledCommand worker => SetNewHireEnabled(worker.Enabled),
             TrainNewHireCommand training => TrainNewHire(training.Specification),
             ConfigureWasherAutomationCommand automation => ConfigureAutomation(automation.Policy),
             InspectAutomationIncidentCommand => InspectAutomationIncident(),
             ReplayAutomationIncidentCommand => ReplayAutomationIncident(),
+            BeginAutomationRuleEditCommand => BeginAutomationRuleEdit(),
+            SetAutomationRuleEnabledCommand enabled => SetAutomationRuleEnabled(enabled.Enabled),
+            ToggleAutomationRuleConditionCommand condition => ToggleAutomationRuleCondition(condition.Observable),
+            SetAutomationRuleActionCommand action => SetAutomationRuleAction(action.Action),
+            ApplyAutomationRuleEditCommand => ApplyAutomationRuleEdit(),
+            DiscardAutomationRuleEditCommand => DiscardAutomationRuleEdit(),
+            SaveAutomationRulePresetCommand preset => SaveAutomationRulePreset(preset.Slot),
+            RunAutomationRuleComparisonCommand comparison => RunAutomationRuleComparison(comparison.HorizonTicks),
             StartShiftTrialCommand => StartShiftTrial(),
             InjectStickyReadyFaultCommand => InjectStickyReadyFault(),
+            TriggerDishStationIncidentCommand incident => TriggerIncident(incident.Incident),
+            StartProcessCaptureCommand capture => StartProcessCapture(capture.Name),
+            CompleteProcessCaptureCommand => CompleteProcessCapture(),
+            BeginProcessEditCommand edit => BeginProcessEdit(edit.ArtifactId),
+            MoveProcessStepCommand move => MoveProcessStep(move.StepId, move.Offset),
+            AssignProcessStepCommand assign => AssignProcessStep(assign.StepId, assign.Actor),
+            SetProcessRoutingPolicyCommand routing => SetProcessRoutingPolicy(routing.Policy),
+            ApplyProcessEditCommand => ApplyProcessEdit(),
+            DiscardProcessEditCommand => DiscardProcessEdit(),
             _ => CommandResult.Rejected($"Unknown command {command.GetType().Name}."),
         };
         if (result.Success) UpdateProgression();
@@ -325,9 +385,12 @@ public sealed class DishStationWorld
         var performedByNewHire = cause == DishTransitionCause.NewHireWork;
         if (cause == DishTransitionCause.PlayerWork)
         {
-            var stationCell = placements.At(FixtureFor(action));
-            sandboxMovementSteps += playerCell.DistanceTo(stationCell);
-            playerCell = stationCell;
+            var topology = Topology;
+            var interactionPort = topology.InteractionPort(FixtureFor(action));
+            var path = topology.FindPath(playerCell, interactionPort);
+            if (path.Length == 0) return CommandResult.Rejected("No walkable route reaches that workstation.");
+            sandboxMovementSteps += path.Length - 1;
+            playerCell = interactionPort;
         }
         var source = DishStationRules.RequiredState(action);
         if (At(source).For(kind) <= 0)
@@ -337,6 +400,8 @@ public sealed class DishStationWorld
 
         if (action == DishAction.StartWasher)
         {
+            if (incidentBlockedResource)
+                return CommandResult.Rejected("The washer is unavailable during the active incident.");
             if (WasherOccupied)
             {
                 return CommandResult.Rejected(WasherRunning ? "The washer is already running." : "Unload the clean dish before starting another cycle.");
@@ -346,14 +411,16 @@ public sealed class DishStationWorld
             Move(source, DishState.Washing, kind, cause);
             WasherRunning = true;
             washingKind = kind;
-            washerCompletesAt = Tick + Configuration.WasherCycleTicks;
-            Notify("Washer started", $"The cycle takes {Configuration.WasherCycleTicks} ticks. Watch what queues while it runs.");
+            washerCompletesAt = Tick + Configuration.WasherCycleTicks + incidentProcessDelayTicks;
+            Notify("Washer started", "The cycle is underway. Watch what waits while the machine is occupied.");
+            CapturePlayerStep(action, kind, source, DishState.Washing, cause);
+            if (cause == DishTransitionCause.PlayerWork) playerWorkActions++;
             return CommandResult.Accepted("Washer started.");
         }
 
-        if (action == DishAction.Rack && At(DishState.Racked).Total >= Configuration.RackCapacity)
+        if (action == DishAction.Rack && At(DishState.Racked).Total >= EffectiveRackCapacity)
         {
-            return CommandResult.Rejected($"The rack is at its {Configuration.RackCapacity}-dish capacity.");
+            return CommandResult.Rejected($"The rack is at its {EffectiveRackCapacity}-dish capacity.");
         }
 
         var destination = DishStationRules.ResultState(action);
@@ -367,7 +434,7 @@ public sealed class DishStationWorld
             if (TutorialStage == DishTutorialStage.RestockFirstDish)
             {
                 TutorialStage = DishTutorialStage.EnableDinnerRush;
-                Notify("Keep Up", "You restored service supply. Enable the dinner rush and watch what the station cannot keep up with.");
+                Notify("Dinner is next", "Avery has the first plate. Let Tessa open dinner service and watch which supply runs short.");
             }
             else if (kind == LastShortageKind && TutorialStage == DishTutorialStage.ValidateBottleneck)
             {
@@ -378,7 +445,7 @@ public sealed class DishStationWorld
             else if (performedByNewHire && kind == DishKind.Tray && TutorialStage == DishTutorialStage.ValidateRareTray)
             {
                 TutorialStage = DishTutorialStage.OfferAutomation;
-                Notify("Rare tray validated", "The new hire returned the uncommon tray without rework. The manager now offers an automatic washer-start controller.");
+                Notify("Rare tray validated", "Jules returned the uncommon tray without rework. Avery is ready to approve a washer-start rule.");
             }
         }
         else if (!performedByNewHire && action == DishAction.Scrape)
@@ -387,13 +454,15 @@ public sealed class DishStationWorld
         }
         else if (!performedByNewHire && action == DishAction.Rack)
         {
-            Notify("Ready for the machine", "Start the washer when the rack is ready. The simulation, not the renderer, owns the cycle.");
+            Notify("Ready for the machine", "The rack is staged. Start the washer and watch the machine become occupied.");
         }
         else if (!performedByNewHire && action == DishAction.Unload)
         {
             Notify("Drying area", "The wet dish is out of the machine. Dry and restock it next.");
         }
 
+        CapturePlayerStep(action, kind, source, destination, cause);
+        if (cause == DishTransitionCause.PlayerWork) playerWorkActions++;
         return CommandResult.Accepted($"{action} completed.");
     }
 
@@ -404,9 +473,9 @@ public sealed class DishStationWorld
         {
             TutorialStage = DishTutorialStage.AwaitServiceShortage;
         }
-        Notify(enabled ? "Dinner rush" : "Rush paused", enabled
-            ? $"Service now consumes a {Configuration.DemandKind.ToString().ToLowerInvariant()} every {Configuration.DemandIntervalTicks} ticks. Total throughput may hide a targeted shortage."
-            : "Demand is paused; the station can recover.");
+        Notify(enabled ? "Dinner service" : "Service paused", enabled
+            ? $"Tessa now requests clean {DishPlural(Configuration.DemandKind).ToLowerInvariant()} on the dinner cadence. Watch the item service actually needs."
+            : "Tessa has paused new requests; work already in the station remains.");
         return CommandResult.Accepted(enabled ? "Rush enabled." : "Rush disabled.");
     }
 
@@ -448,6 +517,7 @@ public sealed class DishStationWorld
         pendingCommands.Clear();
         commandJournal.Clear();
         notifications.Clear();
+        narrativeEvents.Clear();
         Array.Clear(dishes);
         Array.Clear(plateItemTicks);
         Array.Clear(glassItemTicks);
@@ -482,12 +552,15 @@ public sealed class DishStationWorld
         newHireGlassActions = 0;
         newHireTrayActions = 0;
         trayReworkIncidents = 0;
+        playerWorkActions = 0;
+        staffedTicks = 0;
+        flowCellInvestmentPurchased = false;
         newHireEnabled = false;
         omittedPriorityObserved = false;
         workerDeliveredGlass = false;
         layout = DishStationLayout.Linear;
         placements = DishStationPlacements.Linear;
-        playerCell = placements.Scrape;
+        playerCell = Topology.InteractionPort(DishStationFixture.Scrape);
         sandboxMovementSteps = 0;
         playerTravelSteps = 0;
         newHireTravelSteps = 0;
@@ -495,6 +568,11 @@ public sealed class DishStationWorld
         layoutComparisonStartSteps = 0;
         validatedRouteSteps = 0;
         automationPolicy = default;
+        activeAutomationRule = DishStationAutomationRules.ForPolicy(WasherAutomationPolicy.Off);
+        activeAutomationRuleEdit = null;
+        automationBaselinePreset = null;
+        automationVariantPreset = null;
+        latestAutomationComparison = null;
         automationHalted = false;
         stickyReadySignal = false;
         automatedStarts = 0;
@@ -503,12 +581,35 @@ public sealed class DishStationWorld
         safetyBlockActive = false;
         automationTrace.Clear();
         automationTraceSnapshot = [];
+        automationRuleTrace.Clear();
+        automationRuleTraceSnapshot = [];
         automationIncident = null;
         automationReplayCount = 0;
         automationHasReplay = false;
         lastReplayPolicy = default;
         lastReplayWouldStart = false;
         automationRegressionPassed = false;
+        activeIncidents.Clear();
+        incidentTrace.Clear();
+        activeIncidentSnapshot = [];
+        incidentTraceSnapshot = [];
+        incidentProcessDelayTicks = 0;
+        incidentCapacityLoss = 0;
+        incidentBadSensor = false;
+        incidentBlockedResource = false;
+        incidentWorkerAbsent = false;
+        incidentDemandSpike = false;
+        incidentDemandKind = default;
+        incidentDemandIntervalTicks = 0;
+        nextProcessCaptureId = 1;
+        nextProcessArtifactId = 1;
+        activeProcessCapture = null;
+        processArtifacts.Clear();
+        processCaptureEvents.Clear();
+        processArtifactSnapshot = [];
+        processCaptureEventSnapshot = [];
+        activeProcessEdit = null;
+        appliedProcessArtifactId = null;
         introComplete = false;
         guidanceMode = GuidanceMode.Guided;
         reducedMotion = false;
@@ -548,11 +649,14 @@ public sealed class DishStationWorld
         LastShortageKind = Configuration.DemandKind;
         layout = Configuration.InitialLayout;
         placements = PlacementsFor(layout);
-        playerCell = placements.Scrape;
+        flowCellInvestmentPurchased = layout == DishStationLayout.UShapedCell;
+        playerCell = Topology.InteractionPort(DishStationFixture.Scrape);
         newHireEnabled = Configuration.InitialNewHireEnabled;
         newHireSpecification = Configuration.InitialNewHireSpecification;
         newHireActsAt = newHireEnabled ? Tick + 1 : new(0);
         automationPolicy = Configuration.InitialAutomationPolicy;
+        activeAutomationRule = DishStationAutomationRules.ForPolicy(automationPolicy);
+        activeAutomationRuleEdit = null;
         arrivalsUntilGlass = Math.Min(Configuration.GlassEveryArrivals, 2 + Math.Abs(Seed % Configuration.GlassEveryArrivals));
         faultRandomState = unchecked((uint)Seed * 747_796_405u + 2_891_336_453u);
         if (faultRandomState == 0) faultRandomState = 0x9E3779B9u;
@@ -574,13 +678,13 @@ public sealed class DishStationWorld
             if (kind == LastShortageKind && TutorialStage == DishTutorialStage.AwaitValidationDemand)
             {
                 TutorialStage = DishTutorialStage.InviteNewHire;
-                Notify("Hypothesis supported", $"Service consumed the {kind.ToString().ToLowerInvariant()} produced by your intervention. The manager is sending a new hire; decide what process knowledge to transfer.");
+                Notify("Hypothesis supported", $"Tessa received the {kind.ToString().ToLowerInvariant()} from the shorter route. Avery is sending Jules to help; decide what knowledge must travel with the work.");
             }
             else if (kind == DishKind.Glass && workerDeliveredGlass && TutorialStage == DishTutorialStage.ValidateDelegation)
             {
                 TutorialStage = DishTutorialStage.ObserveRareTray;
                 Add(DishState.Dirty, DishKind.Tray);
-                Notify("The Rare Tray", "Delegation restored glass service. An uncommon tray has arrived; observe whether the written process covers it.");
+                Notify("The Rare Tray", "Jules restored glass service. Ray notices an uncommon tray arriving; watch whether the shared process covers what he knows.");
             }
             return;
         }
@@ -590,16 +694,17 @@ public sealed class DishStationWorld
         if (TutorialStage == DishTutorialStage.AwaitServiceShortage)
         {
             TutorialStage = DishTutorialStage.InspectShortage;
-            Notify($"Where Did the {DishPlural(kind)} Go?", $"Service is short of {DishPlural(kind).ToLowerInvariant()}. Open the process lens and inspect where work has accumulated.");
+            Narrate(DishStationNarrativeEventKind.QueuePressure, DishStationQuestId.FindTheConstraint);
+            Notify($"Where Did the {DishPlural(kind)} Go?", $"Tessa is out of clean {DishPlural(kind).ToLowerInvariant()}. Inspect where that work is waiting before changing the station.");
         }
         else if (TutorialStage == DishTutorialStage.ObserveNewHire)
         {
             TutorialStage = DishTutorialStage.DocumentGlassPriority;
-            Notify("Specification gap", "The new hire followed the documented flow, but glass service still starved. The rush-priority rule was never transferred.");
+            Notify("Specification gap", "Jules followed the shared flow exactly, but Tessa still waited for glasses. Ray's rush priority was never transferred.");
         }
         else
         {
-            Notify("Service is waiting", $"No clean {kind.ToString().ToLowerInvariant()} is available. Trace where it is queued.");
+            Notify("Service is waiting", $"Tessa has no clean {kind.ToString().ToLowerInvariant()}. Check where that work is waiting.");
         }
     }
 
@@ -681,11 +786,11 @@ public sealed class DishStationWorld
         {
             TutorialStage = DishTutorialStage.ChooseBottleneck;
             var leader = FindBottleneck()?.ToString() ?? "no queue";
-            Notify("Form a hypothesis", $"The process lens shows {leader} as the pressure leader. Select the workstation you think constrains {LastShortageKind.ToString().ToLowerInvariant()} flow and confirm it.");
+            Notify("Form a hypothesis", $"The strongest waiting signal is at {leader}. Choose the workstation you believe is holding back {LastShortageKind.ToString().ToLowerInvariant()} flow.");
             return CommandResult.Accepted("Shortage evidence inspected; choose a bottleneck hypothesis.");
         }
 
-        Notify("Observation recorded", "The process lens exposes queue pressure and peak depth from simulation history.");
+        Notify("Observation recorded", "The process view preserves where work waited, how long it waited, and the deepest queue seen this shift.");
         return CommandResult.Accepted("Process inspected.");
     }
 
@@ -706,7 +811,7 @@ public sealed class DishStationWorld
         BottleneckHypothesis = hypothesis;
         baselineRouteSteps = playerTravelSteps;
         TutorialStage = DishTutorialStage.ImproveLayout;
-        Notify("Improve the route", $"Evidence supports {hypothesis} as the current constraint. The first complete route cost {baselineRouteSteps} walking steps. Re-form the station as a U-shaped cell, then run one {LastShortageKind.ToString().ToLowerInvariant()} through it.");
+        Notify("Improve the route", $"The evidence supports {hypothesis}. Ray walked {baselineRouteSteps} steps through the first complete route; shorten the handoffs, then send one {LastShortageKind.ToString().ToLowerInvariant()} through again.");
         return CommandResult.Accepted("Hypothesis accepted for validation.");
     }
 
@@ -714,8 +819,14 @@ public sealed class DishStationWorld
     {
         if (requestedLayout == DishStationLayout.Custom)
             return CommandResult.Rejected("Custom layouts are created by placing individual fixtures.");
+        var requestedPlacements = PlacementsFor(requestedLayout);
+        var requestedTopology = new DishStationTopology(requestedPlacements);
+        if (!requestedTopology.AllInteractionPortsConnected())
+            return CommandResult.Rejected("That layout disconnects one or more workstation interaction ports.");
         layout = requestedLayout;
-        placements = PlacementsFor(requestedLayout);
+        placements = requestedPlacements;
+        if (requestedLayout == DishStationLayout.UShapedCell) flowCellInvestmentPurchased = true;
+        playerCell = requestedTopology.ResolveWalkable(playerCell);
         if (TutorialStage == DishTutorialStage.ImproveLayout && requestedLayout == DishStationLayout.UShapedCell)
         {
             layoutComparisonStartSteps = playerTravelSteps;
@@ -739,10 +850,16 @@ public sealed class DishStationWorld
             return CommandResult.Rejected($"{cell.X},{cell.Y} is outside the dish-station floor.");
         if (placements.IsOccupied(cell, fixture))
             return CommandResult.Rejected("Another fixture already occupies that floor cell.");
+        if (cell == playerCell)
+            return CommandResult.Rejected("Move away before placing a fixture on that floor cell.");
         if ((fixture is DishStationFixture.Washer or DishStationFixture.Unload) && WasherOccupied)
             return CommandResult.Rejected("Unload the washer before relocating its work area.");
 
-        placements = placements.With(fixture, cell);
+        var candidatePlacements = placements.With(fixture, cell);
+        var candidateTopology = new DishStationTopology(candidatePlacements);
+        if (!candidateTopology.AllInteractionPortsConnected())
+            return CommandResult.Rejected("That placement disconnects one or more workstation interaction ports.");
+        placements = candidatePlacements;
         layout = DishStationLayout.Custom;
         Notify("Layout changed", $"{FixtureLabel(fixture)} moved to {cell.X},{cell.Y}. The estimated handoff route is now {placements.EstimatedRouteSteps} steps.");
         return CommandResult.Accepted($"{FixtureLabel(fixture)} placed at {cell.X},{cell.Y}.");
@@ -752,11 +869,76 @@ public sealed class DishStationWorld
     {
         if (!destination.IsInsideDishStation)
             return CommandResult.Rejected($"{destination.X},{destination.Y} is outside the dish-station floor.");
-        var steps = playerCell.DistanceTo(destination);
+        if (destination == playerCell) return CommandResult.Accepted("Already at that floor cell.");
+        var topology = Topology;
+        if (!topology.IsWalkable(destination))
+            return CommandResult.Rejected($"{destination.X},{destination.Y} is blocked by a workstation footprint.");
+        if (!topology.CanStep(playerCell, destination))
+            return CommandResult.Rejected("Movement must follow one unobstructed neighboring floor step.");
         playerCell = destination;
-        sandboxMovementSteps += steps;
-        return CommandResult.Accepted(steps == 0 ? "Already at that floor cell." : $"Walked {steps} floor steps.");
+        sandboxMovementSteps++;
+        return CommandResult.Accepted("Walked 1 floor step.");
     }
+
+    public DishStationInteractionState InteractionAt(DishStationFixture fixture, DishKind kind)
+    {
+        if (!Enum.IsDefined(fixture)) throw new ArgumentOutOfRangeException(nameof(fixture));
+        var cell = Topology.InteractionPort(fixture);
+        var distance = playerCell.DistanceTo(cell);
+        if (distance != 0)
+            return new(fixture, cell, distance, ActionForFixture(fixture), null, 0, DishStationInteractionBlockReason.MoveCloser);
+        if (fixture == DishStationFixture.Service)
+            return new(fixture, cell, distance, null, null, At(DishState.Available).For(kind), DishStationInteractionBlockReason.InspectionOnly);
+
+        var action = ActionForFixture(fixture)!.Value;
+        var required = DishStationRules.RequiredState(action);
+        var count = At(required).For(kind);
+        if (count <= 0)
+            return new(fixture, cell, distance, action, required, count, DishStationInteractionBlockReason.NoDishReady);
+        if (action == DishAction.StartWasher && WasherOccupied)
+            return new(fixture, cell, distance, action, required, count,
+                WasherRunning ? DishStationInteractionBlockReason.WasherRunning : DishStationInteractionBlockReason.WasherNeedsUnload);
+        if (action == DishAction.Rack && At(DishState.Racked).Total >= EffectiveRackCapacity)
+            return new(fixture, cell, distance, action, required, count, DishStationInteractionBlockReason.RackFull);
+        return new(fixture, cell, distance, action, required, count, DishStationInteractionBlockReason.None);
+    }
+
+    private CommandResult InteractWithFixture(DishStationFixture fixture, DishKind kind)
+    {
+        if (!Enum.IsDefined(fixture)) return CommandResult.Rejected("That fixture does not exist.");
+        var interaction = InteractionAt(fixture, kind);
+        if (!interaction.CanWork) return CommandResult.Rejected(InteractionBlockedMessage(interaction, kind));
+        return Perform(interaction.WorkAction!.Value, kind);
+    }
+
+    private CommandResult InspectFixture(DishStationFixture fixture, DishKind kind)
+    {
+        if (!Enum.IsDefined(fixture)) return CommandResult.Rejected("That fixture does not exist.");
+        var interaction = InteractionAt(fixture, kind);
+        if (!interaction.CanInspect)
+            return CommandResult.Rejected($"Move {interaction.Distance} floor step{(interaction.Distance == 1 ? "" : "s")} closer to inspect {FixtureLabel(fixture).ToLowerInvariant()}.");
+        if (fixture == DishStationFixture.Service)
+        {
+            var available = At(DishState.Available);
+            return CommandResult.Accepted($"Service supply: P{available.Plates} G{available.Glasses} T{available.Trays}; {ServiceShortages} shortages.");
+        }
+
+        var required = interaction.RequiredState!.Value;
+        var counts = At(required);
+        var readiness = interaction.CanWork ? $"{kind} is ready for work." : InteractionBlockedMessage(interaction, kind);
+        return CommandResult.Accepted($"{FixtureLabel(fixture)}: {required} P{counts.Plates} G{counts.Glasses} T{counts.Trays}. {readiness}");
+    }
+
+    private static string InteractionBlockedMessage(DishStationInteractionState interaction, DishKind kind) => interaction.WorkBlockReason switch
+    {
+        DishStationInteractionBlockReason.MoveCloser => $"Move {interaction.Distance} floor step{(interaction.Distance == 1 ? "" : "s")} closer to {FixtureLabel(interaction.Fixture).ToLowerInvariant()}.",
+        DishStationInteractionBlockReason.InspectionOnly => "Service has no workstation action; inspect its supply instead.",
+        DishStationInteractionBlockReason.NoDishReady => $"No {kind.ToString().ToLowerInvariant()} is {interaction.RequiredState!.Value.ToString().ToLowerInvariant()}.",
+        DishStationInteractionBlockReason.RackFull => "The rack is at capacity.",
+        DishStationInteractionBlockReason.WasherRunning => "The washer is already running.",
+        DishStationInteractionBlockReason.WasherNeedsUnload => "Unload the clean dish before starting another cycle.",
+        _ => "Work is available.",
+    };
 
     private CommandResult SetNewHireEnabled(bool enabled)
     {
@@ -767,7 +949,7 @@ public sealed class DishStationWorld
             if (TutorialStage == DishTutorialStage.InviteNewHire)
             {
                 TutorialStage = DishTutorialStage.TrainNewHire;
-                Notify("The New Hire", "The new worker is ready but does not know the dish process. Transfer an explicit procedure before delegating work.");
+                Notify("Jules joins the station", "Jules is ready to help but knows only what the crew shares. Transfer the basic dish flow before handing over work.");
             }
             else
             {
@@ -802,19 +984,19 @@ public sealed class DishStationWorld
                 ? DishTutorialStage.ValidateDelegation
                 : DishTutorialStage.ObserveNewHire;
             Notify("Process transferred", specification.RushGlassPriorityDocumented
-                ? "The new hire received the dish flow and the rush glass-priority rule. Observe the delegated result."
-                : "The new hire received the visible happy-path flow. Observe how that definition behaves during the rush.");
+                ? "Jules now has the basic flow and Ray's rush-glass priority. Watch whether Tessa receives what she needs."
+                : "Jules now has the basic dish flow. Watch what happens when dinner demand changes the priority.");
         }
         else if (TutorialStage == DishTutorialStage.DocumentGlassPriority && specification.RushGlassPriorityDocumented)
         {
             TutorialStage = DishTutorialStage.ValidateDelegation;
             workerDeliveredGlass = false;
-            Notify("Knowledge made explicit", "The process now says that glasses take priority during the rush. Validate the changed delegated behavior.");
+            Notify("Knowledge made explicit", "Ray's rush-glass priority is now shared with Jules. Watch whether the next choice serves Tessa sooner.");
         }
         else if (TutorialStage == DishTutorialStage.DocumentRareTray && specification.RareTrayHandlingDocumented)
         {
             TutorialStage = DishTutorialStage.ValidateRareTray;
-            Notify("Rare knowledge captured", "The process now includes the uncommon tray orientation. Let the new hire retry it.");
+            Notify("Rare knowledge captured", "Ray's uncommon-tray orientation is now part of the shared work. Let Jules retry it.");
         }
         else
         {
@@ -828,7 +1010,10 @@ public sealed class DishStationWorld
 
     private void AdvanceNewHire()
     {
-        if (!newHireEnabled || !newHireSpecification.FlowDocumented || Tick.Value < newHireActsAt.Value) return;
+        if (newHireEnabled) staffedTicks++;
+        var appliedProcess = AppliedProcessVersion();
+        if (!newHireEnabled || incidentWorkerAbsent ||
+            (appliedProcess is null && !newHireSpecification.FlowDocumented) || Tick.Value < newHireActsAt.Value) return;
         newHireActsAt = Tick + WorkerIntervalForCurrentLayout();
 
         var glassHasWork = HasProcessWork(DishKind.Glass);
@@ -839,17 +1024,22 @@ public sealed class DishStationWorld
         }
         else
         {
-            var preferGlass = RushEnabled && newHireSpecification.RushGlassPriorityDocumented && glassHasWork;
+            var preferGlass = appliedProcess?.RoutingPolicy switch
+            {
+                ProcessRoutingPolicy.GlassesFirst => glassHasWork,
+                ProcessRoutingPolicy.PlatesFirst => false,
+                _ => EffectiveRushEnabled && newHireSpecification.RushGlassPriorityDocumented && glassHasWork,
+            };
             var primary = preferGlass ? DishKind.Glass : DishKind.Plate;
             var secondary = preferGlass ? DishKind.Plate : DishKind.Glass;
             workedKind = TryPerformNewHire(primary) ? primary : TryPerformNewHire(secondary) ? secondary : (DishKind?)null;
         }
         if (workedKind is null) return;
 
-        if (RushEnabled && !newHireSpecification.RushGlassPriorityDocumented && workedKind == DishKind.Plate && glassHasWork && !omittedPriorityObserved)
+        if (EffectiveRushEnabled && !newHireSpecification.RushGlassPriorityDocumented && workedKind == DishKind.Plate && glassHasWork && !omittedPriorityObserved)
         {
             omittedPriorityObserved = true;
-            Notify("Observed behavior", "The new hire chose a plate while glasses were waiting. That matches the written flow; no rush priority was specified.");
+            Notify("Observed behavior", "Jules chose a plate while Tessa waited for glasses. The shared flow was followed; Ray's rush priority was absent.");
         }
     }
 
@@ -858,10 +1048,13 @@ public sealed class DishStationWorld
         DishAction? action = null;
         if (At(DishState.CleanWet).For(kind) > 0) action = DishAction.DryAndRestock;
         else if (At(DishState.WashedInMachine).For(kind) > 0) action = DishAction.Unload;
-        else if (At(DishState.Racked).For(kind) > 0 && !WasherOccupied && !automationPolicy.Enabled) action = DishAction.StartWasher;
+        else if (At(DishState.Racked).For(kind) > 0 && WasherPhysicalReady && !automationPolicy.Enabled) action = DishAction.StartWasher;
         else if (At(DishState.Scraped).For(kind) > 0) action = DishAction.Rack;
         else if (At(DishState.Dirty).For(kind) > 0) action = DishAction.Scrape;
         if (action is null) return false;
+        var appliedProcess = AppliedProcessVersion();
+        if (appliedProcess is not null && !IsAssignedToNewHire(appliedProcess, action.Value))
+            return false;
 
         if (kind == DishKind.Tray && action == DishAction.Rack && !newHireSpecification.RareTrayHandlingDocumented)
         {
@@ -875,7 +1068,7 @@ public sealed class DishStationWorld
             if (TutorialStage == DishTutorialStage.ObserveRareTray)
             {
                 TutorialStage = DishTutorialStage.DocumentRareTray;
-                Notify("Rare tray rework", "The new hire used the ordinary rack orientation. The uncommon tray returned dirty because that exception was not in the process.");
+                Notify("Rare tray rework", "Jules used the ordinary rack orientation. The uncommon tray returned dirty because Ray's exception was not in the shared process.");
             }
             return true;
         }
@@ -889,6 +1082,21 @@ public sealed class DishStationWorld
         else if (kind == DishKind.Glass) newHireGlassActions++;
         else newHireTrayActions++;
         return true;
+    }
+
+    private PlayerProcessVersion? AppliedProcessVersion()
+    {
+        if (appliedProcessArtifactId is not { } id) return null;
+        for (var index = 0; index < processArtifacts.Count; index++)
+            if (processArtifacts[index].Id == id) return processArtifacts[index].Current;
+        return null;
+    }
+
+    private bool IsAssignedToNewHire(PlayerProcessVersion process, DishAction action)
+    {
+        foreach (var step in process.Steps)
+            if (step.Action == action && step.AssignedActor == newHireId) return true;
+        return false;
     }
 
     private bool HasProcessWork(DishKind kind) =>
@@ -937,6 +1145,17 @@ public sealed class DishStationWorld
         DishAction.Unload => DishStationFixture.Unload,
         DishAction.DryAndRestock => DishStationFixture.DryRestock,
         _ => throw new ArgumentOutOfRangeException(nameof(action)),
+    };
+
+    private static DishAction? ActionForFixture(DishStationFixture fixture) => fixture switch
+    {
+        DishStationFixture.Scrape => DishAction.Scrape,
+        DishStationFixture.Rack => DishAction.Rack,
+        DishStationFixture.Washer => DishAction.StartWasher,
+        DishStationFixture.Unload => DishAction.Unload,
+        DishStationFixture.DryRestock => DishAction.DryAndRestock,
+        DishStationFixture.Service => null,
+        _ => throw new ArgumentOutOfRangeException(nameof(fixture)),
     };
 
     private static string FixtureLabel(DishStationFixture fixture) => fixture switch
@@ -994,6 +1213,8 @@ public sealed class DishStationWorld
     private CommandResult ConfigureAutomation(WasherAutomationPolicy policy)
     {
         automationPolicy = policy;
+        activeAutomationRule = DishStationAutomationRules.ForPolicy(policy);
+        activeAutomationRuleEdit = null;
         if (!policy.Enabled || policy.RequirePhysicalReady)
         {
             automationHalted = false;
@@ -1022,21 +1243,119 @@ public sealed class DishStationWorld
         return CommandResult.Accepted("Washer automation configured.");
     }
 
+    private CommandResult BeginAutomationRuleEdit()
+    {
+        if (activeAutomationRuleEdit is not null) return CommandResult.Rejected("An automation rule draft is already active.");
+        activeAutomationRuleEdit = DishStationAutomationRuleEditor.Begin(activeAutomationRule);
+        Notify("Automation draft opened", "Edit the washer rule's enabled state, readiness conditions, and Start Washer action, then validate and apply it.");
+        return CommandResult.Accepted("Automation rule draft opened.");
+    }
+
+    private CommandResult SetAutomationRuleEnabled(bool enabled)
+    {
+        if (activeAutomationRuleEdit is not { } draft) return CommandResult.Rejected("No automation rule draft is active.");
+        activeAutomationRuleEdit = DishStationAutomationRuleEditor.SetEnabled(draft, enabled);
+        return CommandResult.Accepted(enabled ? "Draft enabled." : "Draft disabled.");
+    }
+
+    private CommandResult ToggleAutomationRuleCondition(AutomationObservable observable)
+    {
+        if (activeAutomationRuleEdit is not { } draft) return CommandResult.Rejected("No automation rule draft is active.");
+        if (!Enum.IsDefined(observable)) return CommandResult.Rejected("Unknown automation observable.");
+        activeAutomationRuleEdit = DishStationAutomationRuleEditor.ToggleCondition(draft, observable);
+        return CommandResult.Accepted($"{observable} condition toggled.");
+    }
+
+    private CommandResult SetAutomationRuleAction(DishAction action)
+    {
+        if (activeAutomationRuleEdit is not { } draft) return CommandResult.Rejected("No automation rule draft is active.");
+        activeAutomationRuleEdit = DishStationAutomationRuleEditor.SetAction(draft, action);
+        return CommandResult.Accepted("Draft action updated.");
+    }
+
+    private CommandResult ApplyAutomationRuleEdit()
+    {
+        if (activeAutomationRuleEdit is not { } draft) return CommandResult.Rejected("No automation rule draft is active.");
+        if (!draft.Diagnostics.IsDefaultOrEmpty) return CommandResult.Rejected(draft.Diagnostics[0].Message);
+
+        activeAutomationRule = DishStationAutomationRuleEditor.Compile(draft);
+        automationPolicy = DishStationAutomationRuleEditor.PolicyFor(activeAutomationRule);
+        automationHalted = false;
+        safetyBlockActive = false;
+        activeAutomationRuleEdit = null;
+        RecordAutomationTrace(AutomationTraceOutcome.PolicyConfigured, null);
+
+        if (TutorialStage == DishTutorialStage.OfferAutomation && activeAutomationRule.Enabled)
+        {
+            TutorialStage = DishTutorialStage.ObserveAutomation;
+            Notify("Player rule applied", "Your rule starts a present rack from the readiness conditions you selected. Observe its live trace.");
+        }
+        else if (TutorialStage == DishTutorialStage.RefineAutomation && activeAutomationRule.Enabled &&
+                 automationPolicy.RequirePhysicalReady)
+        {
+            TutorialStage = DishTutorialStage.ValidateAutomation;
+            Notify("Player rule refined", "Your rule now corroborates the reported signal with physical machine state. Re-run the sticky-signal condition.");
+        }
+        else
+        {
+            Notify("Player rule applied", activeAutomationRule.Enabled
+                ? "The edited washer rule is active."
+                : "The edited washer rule is disabled; manual fallback remains available.");
+        }
+        return CommandResult.Accepted("Automation rule applied.");
+    }
+
+    private CommandResult DiscardAutomationRuleEdit()
+    {
+        if (activeAutomationRuleEdit is null) return CommandResult.Rejected("No automation rule draft is active.");
+        activeAutomationRuleEdit = null;
+        return CommandResult.Accepted("Automation rule draft discarded.");
+    }
+
+    private CommandResult SaveAutomationRulePreset(AutomationPresetSlot slot)
+    {
+        if (!Enum.IsDefined(slot)) return CommandResult.Rejected("Unknown automation preset slot.");
+        if (!activeAutomationRule.Enabled) return CommandResult.Rejected("Enable and apply a rule before saving a preset.");
+        var preset = new AutomationRulePreset(slot, Tick, activeAutomationRule);
+        if (slot == AutomationPresetSlot.Baseline) automationBaselinePreset = preset;
+        else automationVariantPreset = preset;
+        latestAutomationComparison = null;
+        Notify($"{slot} preset saved", $"Saved applied rule {activeAutomationRule.Id} for controlled comparison.");
+        return CommandResult.Accepted($"{slot} automation preset saved.");
+    }
+
+    private CommandResult RunAutomationRuleComparison(int horizonTicks)
+    {
+        if (automationBaselinePreset is not { } baseline) return CommandResult.Rejected("Save a baseline preset first.");
+        if (automationVariantPreset is not { } variant) return CommandResult.Rejected("Save a variant preset first.");
+        if (horizonTicks is < 1 or > AutomationPresetComparisonRunner.MaximumHorizonTicks)
+            return CommandResult.Rejected($"Comparison horizon must be between 1 and {AutomationPresetComparisonRunner.MaximumHorizonTicks} ticks.");
+        latestAutomationComparison = AutomationPresetComparisonRunner.Run(Seed, Configuration, horizonTicks, baseline, variant);
+        Notify("Controlled comparison complete", latestAutomationComparison.Summary);
+        return CommandResult.Accepted("Automation comparison complete.");
+    }
+
     private void AdvanceAutomation()
     {
-        if (!automationPolicy.Enabled || automationHalted) return;
+        if (!activeAutomationRule.Enabled || automationHalted) return;
         var kind = ChooseAutomatedRack();
-        if (kind is null || !WasherReportedReady)
+        if (kind is null)
         {
             safetyBlockActive = false;
             return;
         }
 
-        if (!WasherPhysicalReady)
+        var reportedReadyAtDecision = WasherReportedReady;
+        var physicalReadyAtDecision = WasherPhysicalReady;
+        var evaluation = AutomationRuleEvaluator.Evaluate(activeAutomationRule,
+            new(At(DishState.Racked).Total, reportedReadyAtDecision, physicalReadyAtDecision));
+
+        if (!physicalReadyAtDecision)
         {
-            if (automationPolicy.RequirePhysicalReady)
+            if (!evaluation.ConditionMatched)
             {
-                if (!safetyBlockActive)
+                RecordAutomationRuleTrace(evaluation.Trace);
+                if (reportedReadyAtDecision && !safetyBlockActive)
                 {
                     safetyBlockActive = true;
                     preventedUnsafeStarts++;
@@ -1044,25 +1363,44 @@ public sealed class DishStationWorld
                     if (TutorialStage == DishTutorialStage.ValidateAutomation)
                     {
                         TutorialStage = DishTutorialStage.ValidateRegression;
-                        Notify("Guard observed", "The ready signal stayed lit, but the physical-state check prevented an invalid start. Replay the recorded incident to make this case a regression check.");
+                        Notify("Devon's check held", "The Ready light stayed on, but the physical washer check refused another start. Retest the captured incident next.");
                     }
+                }
+                else if (!reportedReadyAtDecision)
+                {
+                    safetyBlockActive = false;
                 }
                 return;
             }
 
             automationIncidents++;
             automationHalted = true;
-            automationIncident ??= new(Tick, kind.Value, automationPolicy, WasherReportedReady, WasherPhysicalReady);
+            automationIncident ??= new(Tick, kind.Value, automationPolicy, reportedReadyAtDecision, physicalReadyAtDecision);
+            RecordAutomationRuleTrace(AutomationRuleEvaluator.WithOutcomes(evaluation.Trace,
+            [
+                new(0, evaluation.SelectedEffects[0], false, "Physical washer state rejected the requested start."),
+            ]));
             RecordAutomationTrace(AutomationTraceOutcome.UnsafeStartRequested, kind);
-            if (TutorialStage == DishTutorialStage.ObserveAutomation) TutorialStage = DishTutorialStage.InvestigateAutomation;
-            Notify("Automation incident", "The controller requested a start because Ready was lit, but the previous clean rack was still physically in the machine. Automatic control is halted.");
+            if (TutorialStage == DishTutorialStage.ObserveAutomation)
+            {
+                TutorialStage = DishTutorialStage.InvestigateAutomation;
+                Narrate(DishStationNarrativeEventKind.AutomationIncident, DishStationQuestId.InvestigateTheSignal);
+            }
+            Notify("Washer start stopped", "The rule requested another start because Ready was lit, but Devon can see the previous clean rack is still inside. Automatic starts are halted.");
             return;
         }
 
+        if (!evaluation.ConditionMatched || evaluation.SelectedEffects is not [IssueDishActionAutomationEffect { Action: DishAction.StartWasher }])
+        {
+            RecordAutomationRuleTrace(evaluation.Trace);
+            return;
+        }
         safetyBlockActive = false;
-        var reportedReadyAtDecision = WasherReportedReady;
-        var physicalReadyAtDecision = WasherPhysicalReady;
         var result = Perform(DishAction.StartWasher, kind.Value, DishTransitionCause.Automation);
+        RecordAutomationRuleTrace(AutomationRuleEvaluator.WithOutcomes(evaluation.Trace,
+        [
+            new(0, evaluation.SelectedEffects[0], result.Success, result.Message),
+        ]));
         if (result.Success)
         {
             automatedStarts++;
@@ -1087,7 +1425,7 @@ public sealed class DishStationWorld
 
     private DishKind? ChooseAutomatedRack()
     {
-        if (RushEnabled && At(DishState.Racked).Glasses > 0) return DishKind.Glass;
+        if (EffectiveRushEnabled && At(DishState.Racked).Glasses > 0) return DishKind.Glass;
         if (At(DishState.Racked).Trays > 0) return DishKind.Tray;
         if (At(DishState.Racked).Plates > 0) return DishKind.Plate;
         if (At(DishState.Racked).Glasses > 0) return DishKind.Glass;
@@ -1104,7 +1442,7 @@ public sealed class DishStationWorld
         if (TutorialStage == DishTutorialStage.InvestigateAutomation)
         {
             TutorialStage = DishTutorialStage.ReplayAutomation;
-            Notify("First divergence", $"Reported Ready was {automationIncident?.ReportedReady}, while physical readiness was {automationIncident?.PhysicalReady}. The rule trusted one fallible signal as complete state. Replay the captured decision next.");
+            Notify("Report and reality diverged", $"The panel reported Ready={automationIncident?.ReportedReady}, while Devon's physical check was Ready={automationIncident?.PhysicalReady}. Retest that captured decision next.");
         }
         else
         {
@@ -1122,7 +1460,10 @@ public sealed class DishStationWorld
             return CommandResult.Rejected("No automation incident has been captured for replay.");
         }
 
-        var wouldStart = WouldRequestStart(automationPolicy, incident.ReportedReady, incident.PhysicalReady);
+        var evaluation = AutomationRuleEvaluator.Evaluate(activeAutomationRule,
+            new(1, incident.ReportedReady, incident.PhysicalReady));
+        var wouldStart = evaluation.ConditionMatched;
+        RecordAutomationRuleTrace(evaluation.Trace);
         automationReplayCount++;
         automationHasReplay = true;
         lastReplayPolicy = automationPolicy;
@@ -1133,12 +1474,12 @@ public sealed class DishStationWorld
         if (TutorialStage == DishTutorialStage.ReplayAutomation && wouldStart)
         {
             TutorialStage = DishTutorialStage.RefineAutomation;
-            Notify("Failure reproduced", $"At captured tick {incident.OccurredAt.Value}, the original rule requests another start from ReportedReady={incident.ReportedReady} even though PhysicalReady={incident.PhysicalReady}. Refine the rule now.");
+            Notify("Failure reproduced", $"The original rule requests another start from ReportedReady={incident.ReportedReady} even though Devon's physical check is Ready={incident.PhysicalReady}. Refine the rule now.");
         }
         else if (TutorialStage == DishTutorialStage.ValidateRegression && !wouldStart)
         {
             TutorialStage = DishTutorialStage.ShiftReview;
-            Notify("Regression passed", "The corrected policy rejected the captured inputs. Prepare the station, then start a live reliability window to prove the whole shift can hold together.");
+            Notify("Captured failure rejected", "The corrected rule refused the exact unsafe request. Prepare clean glasses, then let Avery hand you the live shift.");
         }
         else
         {
@@ -1170,7 +1511,7 @@ public sealed class DishStationWorld
         shiftTrialCompletedAtTick = -1;
         RushEnabled = true;
         TutorialStage = DishTutorialStage.ValidateShift;
-        Notify("Reliability window open", $"Service will make {ShiftTrialTargetDemandChecks} demand checks. Keep supply available without a new shortage or unsafe automation request.");
+        Notify("Avery hands over the shift", $"Tessa will make {ShiftTrialTargetDemandChecks} service checks. Keep the crew supplied without another shortage or unsafe washer request.");
         return CommandResult.Accepted("Live reliability window started.");
     }
 
@@ -1181,9 +1522,9 @@ public sealed class DishStationWorld
         {
             shiftTrialStatus = ShiftTrialStatus.Failed;
             TutorialStage = DishTutorialStage.ShiftReview;
-            Notify("Reliability window failed", ServiceShortages > shiftTrialBaselineShortages
-                ? "Service waited for clean supply. Recover the queue, stage inventory, and retry when the system is ready."
-                : "The controller made a new unsafe request. Inspect the policy and retry after correcting it.");
+            Notify("Shift handoff interrupted", ServiceShortages > shiftTrialBaselineShortages
+                ? "Tessa waited for clean supply. Recover the queue, stage glasses, and ask Avery to restart the handoff."
+                : "The washer rule made another unsafe request. Review Devon's physical check before Avery restarts the handoff.");
             return;
         }
 
@@ -1202,9 +1543,45 @@ public sealed class DishStationWorld
             trayReworkIncidents,
             automatedStarts,
             automationIncidents,
-            preventedUnsafeStarts);
+            preventedUnsafeStarts,
+            CaptureEconomySnapshot());
         TutorialStage = DishTutorialStage.EpisodeComplete;
-        Notify("Shift owned", "Three live demand checks completed without a shortage or unsafe request. The combined system held under operation.");
+        Narrate(DishStationNarrativeEventKind.ShiftSucceeded, DishStationQuestId.OwnTheShift);
+        Notify("Shift owned", "Tessa's three service checks passed without a shortage or unsafe washer request. Avery leaves the station in your hands.");
+    }
+
+    private DishStationEconomySnapshot CaptureEconomySnapshot()
+    {
+        var rates = Configuration.Economy;
+        var laborTicks = checked((playerWorkActions + newHireActionsCompleted) * rates.LaborTicksPerWorkAction);
+        var laborCost = checked(laborTicks * rates.LaborCostPerTick);
+        var staffingCost = checked(staffedTicks * rates.StaffingCostPerEnabledTick);
+        var wasteCost = checked(trayReworkIncidents * rates.TrayReworkCost);
+        var shortageDowntimeCost = checked(ServiceShortages * rates.ServiceShortageDowntimeCost);
+        var incidentDowntimeCost = checked(automationIncidents * rates.AutomationIncidentDowntimeCost);
+        var downtimeCost = checked(shortageDowntimeCost + incidentDowntimeCost);
+        var investmentCost = flowCellInvestmentPurchased ? rates.FlowCellInvestmentCost : 0;
+        var throughputValue = checked(Completed * rates.CompletedDishValue);
+        var totalCost = checked(laborCost + staffingCost + wasteCost + downtimeCost + investmentCost);
+        return new(
+            playerWorkActions,
+            newHireActionsCompleted,
+            laborTicks,
+            staffedTicks,
+            trayReworkIncidents,
+            ServiceShortages,
+            automationIncidents,
+            flowCellInvestmentPurchased,
+            throughputValue,
+            laborCost,
+            staffingCost,
+            wasteCost,
+            shortageDowntimeCost,
+            incidentDowntimeCost,
+            downtimeCost,
+            investmentCost,
+            totalCost,
+            checked(throughputValue - totalCost));
     }
 
     private CommandResult InjectStickyReadyFault()
@@ -1316,7 +1693,11 @@ public sealed class DishStationWorld
         automationIncidents,
         preventedUnsafeStarts,
         CaptureAutomationIncidentSnapshot(),
-        automationTraceSnapshot);
+        automationTraceSnapshot,
+        automationRuleTraceSnapshot,
+        activeAutomationRule,
+        activeAutomationRuleEdit,
+        new(automationBaselinePreset, automationVariantPreset, latestAutomationComparison));
 
     private ShiftTrialSnapshot CaptureShiftTrialSnapshot() => new(
         shiftTrialStatus,
@@ -1336,14 +1717,295 @@ public sealed class DishStationWorld
         return new(true, incident.OccurredAt, incident.Kind, incident.OriginalPolicy, incident.ReportedReady, incident.PhysicalReady, automationReplayCount, automationHasReplay, lastReplayPolicy, lastReplayWouldStart, automationRegressionPassed);
     }
 
-    private static bool WouldRequestStart(WasherAutomationPolicy policy, bool reportedReady, bool physicalReady) =>
-        policy.Enabled && reportedReady && (!policy.RequirePhysicalReady || physicalReady);
-
     private void RecordAutomationTrace(AutomationTraceOutcome outcome, DishKind? kind, bool? reportedReady = null, bool? physicalReady = null)
     {
         if (automationTrace.Count == 24) automationTrace.RemoveAt(0);
         automationTrace.Add(new(Tick, outcome, kind, reportedReady ?? WasherReportedReady, physicalReady ?? WasherPhysicalReady, automationPolicy));
         automationTraceSnapshot = automationTrace.ToArray();
+    }
+
+    private void RecordAutomationRuleTrace(AutomationRuleEvaluationTrace evaluation)
+    {
+        if (automationRuleTrace.Count == 24) automationRuleTrace.RemoveAt(0);
+        automationRuleTrace.Add(new(Tick, evaluation));
+        automationRuleTraceSnapshot = automationRuleTrace.ToArray();
+    }
+
+    private ProcessCaptureSnapshot CaptureProcessSnapshot() => new(
+        activeProcessCapture is null
+            ? null
+            : new(activeProcessCapture.Id, activeProcessCapture.Name, activeProcessCapture.StartedAt,
+                activeProcessCapture.Steps.ToImmutableArray()),
+        processArtifactSnapshot,
+        processCaptureEventSnapshot,
+        activeProcessEdit?.Snapshot(),
+        appliedProcessArtifactId);
+
+    private CommandResult StartProcessCapture(string name)
+    {
+        if (activeProcessCapture is not null) return CommandResult.Rejected("A process capture is already active.");
+        if (string.IsNullOrWhiteSpace(name)) return CommandResult.Rejected("Process name is required.");
+        var normalizedName = name.Trim();
+        if (normalizedName.Length > 80) return CommandResult.Rejected("Process name cannot exceed 80 characters.");
+        var id = new ProcessCaptureId(nextProcessCaptureId++);
+        activeProcessCapture = new(id, normalizedName, Tick);
+        RecordProcessCaptureEvent(new(Tick, id, ProcessCaptureEventKind.Started, null, null));
+        Notify("Process capture started", $"Perform '{normalizedName}' manually; successful work will become ordered process steps.");
+        return CommandResult.Accepted("Process capture started.");
+    }
+
+    private CommandResult CompleteProcessCapture()
+    {
+        if (activeProcessCapture is not { } capture) return CommandResult.Rejected("No process capture is active.");
+        if (capture.Steps.Count == 0) return CommandResult.Rejected("Perform at least one successful work action before completing capture.");
+        var provenance = new ProcessCaptureProvenance(
+            capture.Id, ProcessCaptureSource.ManualPlayerWork, Seed, playerActorId, capture.StartedAt, Tick);
+        var version = new PlayerProcessVersion(1, capture.Steps.ToImmutableArray(), provenance,
+            ProcessRoutingPolicy.CapturedOrder, null);
+        var artifact = new PlayerOwnedProcessArtifact(new(nextProcessArtifactId++), playerActorId, capture.Name, version, version);
+        processArtifacts.Add(artifact);
+        processArtifactSnapshot = processArtifacts.ToArray();
+        RecordProcessCaptureEvent(new(Tick, capture.Id, ProcessCaptureEventKind.Completed, null, null));
+        activeProcessCapture = null;
+        Notify("Process captured", $"'{artifact.Name}' now has {artifact.Current.Steps.Length} ordered steps at baseline/current v1.");
+        return CommandResult.Accepted("Process artifact created.");
+    }
+
+    private void CapturePlayerStep(
+        DishAction action,
+        DishKind kind,
+        DishState input,
+        DishState output,
+        DishTransitionCause cause)
+    {
+        if (cause != DishTransitionCause.PlayerWork || activeProcessCapture is not { } capture) return;
+        var step = new CapturedProcessStep(
+            new(capture.Steps.Count + 1),
+            capture.Steps.Count + 1,
+            Tick,
+            playerActorId,
+            FixtureFor(action),
+            action,
+            kind,
+            input,
+            output,
+            playerActorId);
+        capture.Steps.Add(step);
+        RecordProcessCaptureEvent(new(Tick, capture.Id, ProcessCaptureEventKind.StepCaptured, step.Sequence, step.Action));
+    }
+
+    private void RecordProcessCaptureEvent(ProcessCaptureEvent entry)
+    {
+        processCaptureEvents.Add(entry);
+        processCaptureEventSnapshot = processCaptureEvents.ToArray();
+    }
+
+    private CommandResult BeginProcessEdit(PlayerProcessArtifactId artifactId)
+    {
+        if (activeProcessCapture is not null) return CommandResult.Rejected("Complete process capture before editing.");
+        if (activeProcessEdit is not null) return CommandResult.Rejected("A process edit draft is already active.");
+        var artifact = processArtifacts.FirstOrDefault(candidate => candidate.Id == artifactId);
+        if (artifact is null) return CommandResult.Rejected($"Process artifact {artifactId.Value} does not exist.");
+        if (artifact.Owner != playerActorId) return CommandResult.Rejected("Only the owning player can edit this process.");
+        activeProcessEdit = new(
+            artifact.Id,
+            artifact.Current.Version,
+            artifact.Current.Provenance.CaptureId,
+            artifact.Current.Steps.ToList(),
+            artifact.Current.RoutingPolicy,
+            ValidateProcessDraft(artifact.Current.Steps));
+        RecordProcessCaptureEvent(new(Tick, artifact.Current.Provenance.CaptureId, ProcessCaptureEventKind.DraftStarted, null, null));
+        Notify("Process draft opened", $"Editing '{artifact.Name}' current v{artifact.Current.Version}; baseline v{artifact.Baseline.Version} remains unchanged.");
+        return CommandResult.Accepted("Process edit draft opened.");
+    }
+
+    private CommandResult MoveProcessStep(ProcessStepId stepId, int offset)
+    {
+        if (activeProcessEdit is not { } draft) return CommandResult.Rejected("No process edit draft is active.");
+        if (offset is not (-1 or 1)) return CommandResult.Rejected("A step move must be exactly -1 or +1.");
+        var index = draft.Steps.FindIndex(step => step.Id == stepId);
+        if (index < 0) return CommandResult.Rejected($"Process step {stepId.Value} is not in the draft.");
+        var target = index + offset;
+        if (target < 0 || target >= draft.Steps.Count) return CommandResult.Rejected("The step is already at that edge.");
+        (draft.Steps[index], draft.Steps[target]) = (draft.Steps[target], draft.Steps[index]);
+        Renumber(draft);
+        DraftChanged(draft);
+        return CommandResult.Accepted("Process step reordered in draft.");
+    }
+
+    private CommandResult AssignProcessStep(ProcessStepId stepId, ActorId actor)
+    {
+        if (activeProcessEdit is not { } draft) return CommandResult.Rejected("No process edit draft is active.");
+        if (actor != playerActorId && actor != newHireId) return CommandResult.Rejected("A process step can be assigned only to the player or new hire.");
+        var index = draft.Steps.FindIndex(step => step.Id == stepId);
+        if (index < 0) return CommandResult.Rejected($"Process step {stepId.Value} is not in the draft.");
+        draft.Steps[index] = draft.Steps[index] with { AssignedActor = actor };
+        DraftChanged(draft);
+        return CommandResult.Accepted($"Step assigned to actor {actor.Value} in draft.");
+    }
+
+    private CommandResult SetProcessRoutingPolicy(ProcessRoutingPolicy policy)
+    {
+        if (activeProcessEdit is not { } draft) return CommandResult.Rejected("No process edit draft is active.");
+        if (!Enum.IsDefined(policy)) return CommandResult.Rejected("Unknown process routing policy.");
+        draft.RoutingPolicy = policy;
+        DraftChanged(draft);
+        return CommandResult.Accepted($"Draft routing set to {policy}.");
+    }
+
+    private CommandResult ApplyProcessEdit()
+    {
+        if (activeProcessEdit is not { } draft) return CommandResult.Rejected("No process edit draft is active.");
+        draft.Diagnostics = ValidateProcessDraft(draft.Steps);
+        if (draft.Diagnostics.Length > 0) return CommandResult.Rejected(draft.Diagnostics[0].Message);
+        var artifactIndex = processArtifacts.FindIndex(artifact => artifact.Id == draft.ArtifactId);
+        if (artifactIndex < 0) return CommandResult.Rejected("The edited process artifact no longer exists.");
+        var artifact = processArtifacts[artifactIndex];
+        if (artifact.Current.Version != draft.BasedOnVersion)
+            return CommandResult.Rejected("The process changed after this draft opened; reopen it from the current version.");
+        var current = new PlayerProcessVersion(
+            artifact.Current.Version + 1,
+            draft.Steps.ToImmutableArray(),
+            artifact.Current.Provenance,
+            draft.RoutingPolicy,
+            new(artifact.Current.Version, Tick, playerActorId));
+        processArtifacts[artifactIndex] = artifact with { Current = current };
+        processArtifactSnapshot = processArtifacts.ToArray();
+        appliedProcessArtifactId = artifact.Id;
+        RecordProcessCaptureEvent(new(Tick, draft.CaptureId, ProcessCaptureEventKind.VersionApplied, null, null));
+        activeProcessEdit = null;
+        Notify("Process version applied", $"'{artifact.Name}' current v{current.Version} is active; baseline v{artifact.Baseline.Version} is preserved.");
+        return CommandResult.Accepted("Process version validated and applied.");
+    }
+
+    private CommandResult DiscardProcessEdit()
+    {
+        if (activeProcessEdit is not { } draft) return CommandResult.Rejected("No process edit draft is active.");
+        RecordProcessCaptureEvent(new(Tick, draft.CaptureId, ProcessCaptureEventKind.DraftDiscarded, null, null));
+        activeProcessEdit = null;
+        return CommandResult.Accepted("Process edit draft discarded.");
+    }
+
+    private void DraftChanged(MutableProcessEdit draft)
+    {
+        draft.Diagnostics = ValidateProcessDraft(draft.Steps);
+        RecordProcessCaptureEvent(new(Tick, draft.CaptureId, ProcessCaptureEventKind.DraftChanged, null, null));
+    }
+
+    private static void Renumber(MutableProcessEdit draft)
+    {
+        for (var index = 0; index < draft.Steps.Count; index++)
+            draft.Steps[index] = draft.Steps[index] with { Sequence = index + 1 };
+    }
+
+    private static ImmutableArray<ProcessEditDiagnostic> ValidateProcessDraft(IReadOnlyList<CapturedProcessStep> steps)
+    {
+        var diagnostics = ImmutableArray.CreateBuilder<ProcessEditDiagnostic>();
+        if (steps.Count == 0) diagnostics.Add(new("empty", "A process version must contain at least one step."));
+        if (steps.Select(step => step.Id).Distinct().Count() != steps.Count)
+            diagnostics.Add(new("duplicate-step", "Process step IDs must remain unique."));
+        for (var index = 0; index < steps.Count; index++)
+        {
+            var step = steps[index];
+            if (step.Sequence != index + 1)
+                diagnostics.Add(new("sequence", "Process step sequence must be contiguous.", step.Id));
+            if (step.AssignedActor.Value is not (0 or 1))
+                diagnostics.Add(new("assignment", "Process steps can be assigned only to player actor 0 or new-hire actor 1.", step.Id));
+            if (index == 0) continue;
+            var previous = steps[index - 1];
+            var compatible = previous.OutputState == step.InputState ||
+                             previous.Action == DishAction.StartWasher && step.Action == DishAction.Unload;
+            if (!compatible)
+                diagnostics.Add(new("transition",
+                    $"Step {step.Id.Value} expects {step.InputState}, but preceding step {previous.Id.Value} produces {previous.OutputState}.", step.Id));
+        }
+        return diagnostics.ToImmutable();
+    }
+
+    private bool EffectiveRushEnabled => RushEnabled || incidentDemandSpike;
+    private DishKind EffectiveDemandKind => incidentDemandSpike ? incidentDemandKind : Configuration.DemandKind;
+    private int EffectiveDemandIntervalTicks => incidentDemandSpike ? incidentDemandIntervalTicks : Configuration.DemandIntervalTicks;
+    private int EffectiveRackCapacity => Math.Max(1, Configuration.RackCapacity - incidentCapacityLoss);
+
+    private CommandResult TriggerIncident(DishStationIncident incident)
+    {
+        if (incident is null) return CommandResult.Rejected("Incident is required.");
+        try
+        {
+            incident.Validate();
+        }
+        catch (ArgumentException exception)
+        {
+            return CommandResult.Rejected($"Invalid incident: {exception.Message}");
+        }
+
+        if (activeIncidents.Any(active => active.Incident.Id == incident.Id))
+            return CommandResult.Rejected($"Incident '{incident.Id}' is already active.");
+        if (activeIncidents.Any(active => active.Incident.Effect.Kind == incident.Effect.Kind))
+            return CommandResult.Rejected($"A {incident.Effect.Kind} incident is already active.");
+
+        activeIncidents.Add(new(incident, Tick + incident.Effect.DurationTicks));
+        if (incident.Effect is ProcessDelayIncidentEffect delay && WasherRunning)
+            washerCompletesAt += delay.AddedCycleTicks;
+        RecomputeIncidentEffects();
+        RecordIncidentTrace(incident, DishStationIncidentPhase.Started, incident.Observable);
+        Notify("Incident started", incident.Observable);
+        return CommandResult.Accepted($"{incident.Effect.Kind} incident started.");
+    }
+
+    private void ExpireIncidents()
+    {
+        var changed = false;
+        for (var index = activeIncidents.Count - 1; index >= 0; index--)
+        {
+            var active = activeIncidents[index];
+            if (Tick.Value < active.EndsAt.Value) continue;
+            activeIncidents.RemoveAt(index);
+            RecordIncidentTrace(active.Incident, DishStationIncidentPhase.Recovered, active.Incident.Recovery);
+            Notify("Incident recovered", active.Incident.Recovery);
+            changed = true;
+        }
+        if (changed) RecomputeIncidentEffects();
+    }
+
+    private void RecomputeIncidentEffects()
+    {
+        incidentProcessDelayTicks = 0;
+        incidentCapacityLoss = 0;
+        incidentBadSensor = false;
+        incidentBlockedResource = false;
+        incidentWorkerAbsent = false;
+        incidentDemandSpike = false;
+        incidentDemandKind = default;
+        incidentDemandIntervalTicks = 0;
+        foreach (var active in activeIncidents)
+        {
+            switch (active.Incident.Effect)
+            {
+                case ProcessDelayIncidentEffect delay: incidentProcessDelayTicks = delay.AddedCycleTicks; break;
+                case CapacityLossIncidentEffect capacity: incidentCapacityLoss = capacity.LostSlots; break;
+                case BadSensorIncidentEffect: incidentBadSensor = true; break;
+                case BlockedResourceIncidentEffect: incidentBlockedResource = true; break;
+                case WorkerAbsenceIncidentEffect: incidentWorkerAbsent = true; break;
+                case DemandSpikeIncidentEffect demand:
+                    incidentDemandSpike = true;
+                    incidentDemandKind = demand.DemandKind;
+                    incidentDemandIntervalTicks = demand.IntervalTicks;
+                    break;
+            }
+        }
+        activeIncidentSnapshot = activeIncidents
+            .OrderBy(active => active.Incident.Id.Value, StringComparer.Ordinal)
+            .Select(active => new ActiveDishStationIncidentSnapshot(
+                active.Incident.Id, active.Incident.Effect.Kind, active.EndsAt, active.Incident.Scope, active.Incident.Evidence))
+            .ToArray();
+    }
+
+    private void RecordIncidentTrace(DishStationIncident incident, DishStationIncidentPhase phase, string observation)
+    {
+        if (incidentTrace.Count == 48) incidentTrace.RemoveAt(0);
+        incidentTrace.Add(new(Tick, incident.Id, incident.Effect.Kind, phase, observation, incident.Evidence));
+        incidentTraceSnapshot = incidentTrace.ToArray();
     }
 
     private void TrackEntries(DishState state, DishKind kind, int count)
@@ -1414,6 +2076,7 @@ public sealed class DishStationWorld
     }
 
     private void Notify(string title, string message) => notifications.Add(new(Tick, title, message));
+    private void Narrate(DishStationNarrativeEventKind kind, DishStationQuestId quest) => narrativeEvents.Add(new(Tick, kind, quest));
 
     private static string DishPlural(DishKind kind) => kind switch
     {
@@ -1422,6 +2085,33 @@ public sealed class DishStationWorld
         DishKind.Tray => "Trays",
         _ => kind.ToString(),
     };
+
+    private sealed record ActiveDishStationIncident(DishStationIncident Incident, SimulationTick EndsAt);
+    private sealed class MutableProcessCapture(ProcessCaptureId id, string name, SimulationTick startedAt)
+    {
+        public ProcessCaptureId Id { get; } = id;
+        public string Name { get; } = name;
+        public SimulationTick StartedAt { get; } = startedAt;
+        public List<CapturedProcessStep> Steps { get; } = new(8);
+    }
+    private sealed class MutableProcessEdit(
+        PlayerProcessArtifactId artifactId,
+        int basedOnVersion,
+        ProcessCaptureId captureId,
+        List<CapturedProcessStep> steps,
+        ProcessRoutingPolicy routingPolicy,
+        ImmutableArray<ProcessEditDiagnostic> diagnostics)
+    {
+        public PlayerProcessArtifactId ArtifactId { get; } = artifactId;
+        public int BasedOnVersion { get; } = basedOnVersion;
+        public ProcessCaptureId CaptureId { get; } = captureId;
+        public List<CapturedProcessStep> Steps { get; } = steps;
+        public ProcessRoutingPolicy RoutingPolicy { get; set; } = routingPolicy;
+        public ImmutableArray<ProcessEditDiagnostic> Diagnostics { get; set; } = diagnostics;
+
+        public ProcessEditDraft Snapshot() => new(
+            ArtifactId, BasedOnVersion, Steps.ToImmutableArray(), RoutingPolicy, Diagnostics);
+    }
 }
 
 public readonly record struct CommandResult(bool Success, string Message)
@@ -1447,16 +2137,45 @@ public sealed record DishStationSnapshot(
     NewHireSnapshot NewHire,
     DishStationLayoutSnapshot Layout,
     AutomationSnapshot Automation,
+    DishStationIncidentSnapshot Incidents,
+    ProcessCaptureSnapshot ProcessCapture,
     OnboardingSnapshot Onboarding,
     ShiftTrialSnapshot ShiftTrial,
+    DishStationEconomySnapshot Economy,
     ShiftReportSnapshot ShiftReport,
     CareerProgressionSnapshot Progression,
     IReadOnlyList<DishTransitionEntry> RecentTransitions,
+    IReadOnlyList<DishStationNarrativeEvent> NarrativeEvents,
     WorldNotification? LatestNotification)
 {
     public DishCounts At(DishState state) => Dishes[(int)state];
     public StageTelemetry MetricAt(DishState state) => Telemetry[(int)state];
 }
+
+public enum DishStationIncidentPhase
+{
+    Started,
+    Recovered,
+}
+
+public readonly record struct ActiveDishStationIncidentSnapshot(
+    DishStationIncidentId Id,
+    DishStationIncidentKind Kind,
+    SimulationTick EndsAt,
+    string Scope,
+    string Evidence);
+
+public sealed record DishStationIncidentSnapshot(
+    IReadOnlyList<ActiveDishStationIncidentSnapshot> Active,
+    IReadOnlyList<DishStationIncidentTraceEntry> Trace);
+
+public readonly record struct DishStationIncidentTraceEntry(
+    SimulationTick Tick,
+    DishStationIncidentId Id,
+    DishStationIncidentKind Kind,
+    DishStationIncidentPhase Phase,
+    string Observation,
+    string Evidence);
 
 public readonly record struct OnboardingSnapshot(
     bool Complete,
@@ -1492,7 +2211,28 @@ public readonly record struct ShiftReportSnapshot(
     int TrayReworkIncidents,
     int AutomatedStarts,
     int AutomationIncidents,
-    int PreventedUnsafeStarts);
+    int PreventedUnsafeStarts,
+    DishStationEconomySnapshot Economy);
+
+public readonly record struct DishStationEconomySnapshot(
+    int PlayerWorkActions,
+    int WorkerActions,
+    int LaborTicks,
+    int StaffedTicks,
+    int ReworkIncidents,
+    int ServiceShortages,
+    int AutomationIncidents,
+    bool FlowCellInvested,
+    int ThroughputValue,
+    int LaborCost,
+    int StaffingCost,
+    int WasteCost,
+    int ShortageDowntimeCost,
+    int IncidentDowntimeCost,
+    int DowntimeCost,
+    int InvestmentCost,
+    int TotalCost,
+    int NetValue);
 
 public readonly record struct DishStationQuestProgress(
     DishStationQuestId Id,
@@ -1592,34 +2332,8 @@ public readonly record struct AutomationSnapshot(
     int Incidents,
     int PreventedUnsafeStarts,
     AutomationIncidentSnapshot Incident,
-    IReadOnlyList<AutomationTraceEntry> Trace);
-
-public enum DishTutorialStage
-{
-    RestockFirstDish,
-    EnableDinnerRush,
-    AwaitServiceShortage,
-    InspectShortage,
-    ChooseBottleneck,
-    ImproveLayout,
-    ValidateBottleneck,
-    AwaitValidationDemand,
-    InviteNewHire,
-    TrainNewHire,
-    ObserveNewHire,
-    DocumentGlassPriority,
-    ValidateDelegation,
-    ObserveRareTray,
-    DocumentRareTray,
-    ValidateRareTray,
-    OfferAutomation,
-    ObserveAutomation,
-    InvestigateAutomation,
-    ReplayAutomation,
-    RefineAutomation,
-    ValidateAutomation,
-    ValidateRegression,
-    ShiftReview,
-    ValidateShift,
-    EpisodeComplete,
-}
+    IReadOnlyList<AutomationTraceEntry> Trace,
+    IReadOnlyList<AutomationRuleTraceEntry> RuleTrace,
+    AutomationRule ActiveRule,
+    AutomationRuleEditDraft? ActiveEdit,
+    AutomationComparisonSnapshot Comparison);

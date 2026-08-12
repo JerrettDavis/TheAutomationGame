@@ -6,13 +6,45 @@ internal static class FullscreenWindow
     private const int GwlStyle = -16;
     private const long WsPopup = 0x80000000L;
     private const long WsVisible = 0x10000000L;
-    private const uint MonitorDefaultToNearest = 2;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
-    private static readonly IntPtr HwndTop = IntPtr.Zero;
 
-    public static (int Width, int Height) PrimaryDisplaySize => (GetSystemMetrics(0), GetSystemMetrics(1));
+    public static DisplayWorkArea LeftmostWorkArea
+    {
+        get
+        {
+            DisplayWorkArea? leftmost = null;
+            EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (monitor, _, _, _) =>
+            {
+                var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+                if (!GetMonitorInfo(monitor, ref info)) return true;
+                var candidate = new DisplayWorkArea(
+                    info.WorkArea.Left,
+                    info.WorkArea.Top,
+                    info.WorkArea.Right - info.WorkArea.Left,
+                    info.WorkArea.Bottom - info.WorkArea.Top);
+                if (leftmost is null || candidate.X < leftmost.Value.X) leftmost = candidate;
+                return true;
+            }, IntPtr.Zero);
+            return leftmost ?? new DisplayWorkArea(0, 0, GetSystemMetrics(0), GetSystemMetrics(1));
+        }
+    }
 
-    public static async Task ApplyWhenReadyAsync()
+    public static Task ApplyBorderlessToLeftmostWhenReadyAsync(DisplayWorkArea workArea) =>
+        ApplyToLeftmostWhenReadyAsync(workArea, workArea.Width, workArea.Height, borderless: true);
+
+    public static Task ApplyWindowedToLeftmostWhenReadyAsync(DisplayWorkArea workArea, int width, int height) =>
+        ApplyToLeftmostWhenReadyAsync(workArea,
+            Math.Min(width, workArea.Width),
+            Math.Min(height, workArea.Height),
+            borderless: false);
+
+    private static async Task ApplyToLeftmostWhenReadyAsync(
+        DisplayWorkArea workArea,
+        int width,
+        int height,
+        bool borderless)
     {
         try
         {
@@ -26,17 +58,16 @@ internal static class FullscreenWindow
 
             var window = process.MainWindowHandle;
             if (window == IntPtr.Zero) return;
-            var monitor = MonitorFromWindow(window, MonitorDefaultToNearest);
-            var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-            if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info)) return;
 
-            SetWindowLongPtr(window, GwlStyle, new IntPtr(WsPopup | WsVisible));
-            SetWindowPos(window, HwndTop,
-                info.Monitor.Left,
-                info.Monitor.Top,
-                info.Monitor.Right - info.Monitor.Left,
-                info.Monitor.Bottom - info.Monitor.Top,
-                SwpFrameChanged);
+            if (borderless) SetWindowLongPtr(window, GwlStyle, new IntPtr(WsPopup | WsVisible));
+            var x = workArea.X + (workArea.Width - width) / 2;
+            var y = workArea.Y + (workArea.Height - height) / 2;
+            SetWindowPos(window, IntPtr.Zero,
+                x,
+                y,
+                width,
+                height,
+                SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
         }
         catch
         {
@@ -62,8 +93,13 @@ internal static class FullscreenWindow
         public uint Flags;
     }
 
+    public readonly record struct DisplayWorkArea(int X, int Y, int Width, int Height);
+
+    private delegate bool MonitorEnumProc(IntPtr monitor, IntPtr deviceContext, IntPtr monitorRect, IntPtr data);
+
     [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumDisplayMonitors(IntPtr deviceContext, IntPtr clipRect, MonitorEnumProc callback, IntPtr data);
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);

@@ -15,11 +15,24 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Stride.Core.Assets.CompilerApp" IncludeAssets="build;buildTransitive" />
+    <PackageReference Include="Microsoft.Build.Tasks.Core" PrivateAssets="all" />
+    <PackageReference Include="NuGet.Packaging" PrivateAssets="all" />
+    <PackageReference Include="NuGet.Protocol" PrivateAssets="all" />
+    <PackageReference Include="System.Security.Cryptography.Xml" PrivateAssets="all" />
     <PackageReference Include="Stride.Engine" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Assets\imported\kenney-cursor-pack\*.png" />
+    <EmbeddedResource Include="Assets\imported\kenney-furniture-kit\washer_SW.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Automation.Client.Stride.sdpkg" />
+    <None Include="Assets\Imported\KenneyFurnitureKit\Washer.sdm3d" />
+    <None Include="Resources\Imported\KenneyFurnitureKit\washer.glb" />
+    <None Include="Resources\Audio\*.wav" />
   </ItemGroup>
 
 </Project>

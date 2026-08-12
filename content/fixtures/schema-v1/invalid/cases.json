@@ -1,0 +1,101 @@
+[
+  {
+    "name": "malformed-id",
+    "base": "minimal",
+    "mode": "compile",
+    "mutations": [
+      { "find": "id: industry.restaurant", "replace": "id: Industry.Restaurant" }
+    ],
+    "expectedPath": "industries[0].id",
+    "expectedMessage": "not a valid semantic content ID"
+  },
+  {
+    "name": "duplicate-global-id",
+    "base": "minimal",
+    "mode": "compile",
+    "mutations": [
+      {
+        "find": "items:\n",
+        "replace": "  - id: industry.restaurant\n    display_name: Duplicate Restaurant\n\nitems:\n"
+      }
+    ],
+    "expectedPath": "industries",
+    "expectedMessage": "Duplicate global content ID 'industry.restaurant'"
+  },
+  {
+    "name": "unknown-reference",
+    "base": "minimal",
+    "mode": "compile",
+    "mutations": [
+      {
+        "find": "workstations: [workstation.restaurant.washer.standard]",
+        "replace": "workstations: [workstation.restaurant.missing]"
+      }
+    ],
+    "expectedPath": "facility[facility.restaurant.rossis.back-of-house].workstations",
+    "expectedMessage": "Unknown workstation reference 'workstation.restaurant.missing'"
+  },
+  {
+    "name": "wrong-reference-type",
+    "base": "minimal",
+    "mode": "compile",
+    "mutations": [
+      {
+        "find": "workstations: [workstation.restaurant.washer.standard]",
+        "replace": "workstations: [item.restaurant.dish.plate]"
+      }
+    ],
+    "expectedPath": "facility[facility.restaurant.rossis.back-of-house].workstations",
+    "expectedMessage": "has type Item, expected Workstation"
+  },
+  {
+    "name": "invalid-process-transition",
+    "base": "minimal",
+    "mode": "compile",
+    "mutations": [
+      {
+        "find": "facilities:\n",
+        "replace": "  - id: workstation.restaurant.service.standard\n    industry: industry.restaurant\n    display_name: Service Pass\n    accepted_items: [item.restaurant.dish.plate]\n    input_state: dirty\n    output_state: clean\n    presentation: presentation.workstation.service.standard\n    presentation_fallback: presentation.fallback.workstation\n\nfacilities:\n"
+      },
+      {
+        "find": "    steps:\n      - id: wash\n        workstation: workstation.restaurant.washer.standard\n    routes: []",
+        "replace": "    steps:\n      - id: wash\n        workstation: workstation.restaurant.washer.standard\n      - id: serve\n        workstation: workstation.restaurant.service.standard\n    routes:\n      - from: wash\n        to: serve"
+      }
+    ],
+    "expectedPath": "process[process.restaurant.dishwashing.minimal].routes[wash->serve]",
+    "expectedMessage": "output state 'clean' does not match input state 'dirty'"
+  },
+  {
+    "name": "invalid-scenario-configuration",
+    "base": "first_shift",
+    "mode": "compile",
+    "mutations": [
+      { "find": "washer_cycle_ticks: 20", "replace": "washer_cycle_ticks: 0" }
+    ],
+    "expectedPath": "scenarios[0].dish_station.washer_cycle_ticks",
+    "expectedMessage": "positive integer"
+  },
+  {
+    "name": "missing-presentation-fallback",
+    "base": "minimal",
+    "mode": "compile",
+    "mutations": [
+      {
+        "find": "    presentation_fallback: presentation.fallback.workstation\n",
+        "replace": ""
+      }
+    ],
+    "expectedPath": "workstations[0].presentation_fallback",
+    "expectedMessage": "not a valid semantic content ID"
+  },
+  {
+    "name": "unreachable-quest-beat",
+    "base": "first_shift",
+    "mode": "first_shift",
+    "mutations": [
+      { "find": "id: validate-shift", "replace": "id: unreachable-branch" }
+    ],
+    "expectedPath": "quests.narrative.steps",
+    "expectedMessage": "unreachable by the authoritative first-shift stage model"
+  }
+]

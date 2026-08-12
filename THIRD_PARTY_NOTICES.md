@@ -12,3 +12,13 @@ The project retains source, license evidence, and provenance for imported assets
 - Imported runtime subset: `src/Automation.Client.Stride/Assets/imported/kenney-cursor-pack/`
 
 The repository voluntarily retains attribution and provenance even though CC0 does not require attribution.
+
+## Kenney Furniture Kit 2.0
+
+- Creator: Kenney (Kenney Vleugels)
+- Asset used: washer model and southwest isometric projection
+- License: CC0 1.0 Universal / public domain dedication
+- Included license: [`src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/LICENSE.txt`](src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/LICENSE.txt)
+- Provenance: [`src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/PROVENANCE.md`](src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/PROVENANCE.md)
+
+The source GLB is retained for Stride compilation and the matching projection is embedded for the current room renderer. Attribution is not required, but the project retains it voluntarily.

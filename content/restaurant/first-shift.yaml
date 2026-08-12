@@ -1,0 +1,421 @@
+schema_version: 1
+
+industries:
+  - id: industry.restaurant
+    display_name: Restaurant
+
+items:
+  - id: item.restaurant.dishware
+    industry: industry.restaurant
+    display_name: Dishware
+    states: [dirty, scraped, racked, washing, washed_in_machine, clean_wet, available]
+
+workstations:
+  - id: workstation.restaurant.washer.first-shift
+    industry: industry.restaurant
+    display_name: Dish Washer
+    accepted_items: [item.restaurant.dishware]
+    input_state: racked
+    output_state: washed_in_machine
+    presentation: presentation.workstation.dish-washer.standard
+    presentation_fallback: presentation.fallback.workstation
+
+facilities:
+  - id: facility.restaurant.rossis.back-of-house
+    industry: industry.restaurant
+    display_name: Rossi's Back of House
+    workstations: [workstation.restaurant.washer.first-shift]
+
+processes:
+  - id: process.restaurant.dishwashing.first-shift
+    industry: industry.restaurant
+    allow_cycles: false
+    steps:
+      - id: wash
+        workstation: workstation.restaurant.washer.first-shift
+    routes: []
+
+characters:
+  - id: character.restaurant.avery-chen
+    industry: industry.restaurant
+    display_name: Avery Chen
+    role: role.restaurant.shift-manager
+    motivation: Keep service moving without sacrificing labor, quality, or safety.
+    known_facts: [knowledge.restaurant.service-outcomes, knowledge.restaurant.staffing-reality]
+    blind_spots: [knowledge.restaurant.dashboard-can-be-stale]
+    authority: [authority.restaurant.assign-shift-work, authority.restaurant.approve-process-change]
+    relationships:
+      - character: character.restaurant.ray-morales
+        kind: relationship.restaurant.manager-to-domain-expert
+      - character: character.restaurant.tessa-brooks
+        kind: relationship.restaurant.manager-to-service-liaison
+    barks:
+      - id: dialogue.restaurant.avery.shift-held
+        quest: quest.restaurant.first-shift.own-the-shift
+        trigger: shift-succeeded
+        priority: important
+        cooldown_ticks: 0
+        line: That held under pressure. This is your shift now.
+    presentation: presentation.character.restaurant.avery-chen
+    presentation_fallback: presentation.fallback.character
+
+  - id: character.restaurant.ray-morales
+    industry: industry.restaurant
+    display_name: Ray Morales
+    role: role.restaurant.veteran-boh-worker
+    motivation: Survive the shift without improvements that make physical work worse.
+    known_facts: [knowledge.restaurant.physical-dish-flow, knowledge.restaurant.rare-tray-orientation]
+    blind_spots: [knowledge.restaurant.tacit-workarounds-do-not-transfer]
+    authority: [authority.restaurant.perform-back-of-house-work, authority.restaurant.recommend-process-change]
+    relationships:
+      - character: character.restaurant.avery-chen
+        kind: relationship.restaurant.domain-expert-to-manager
+      - character: character.restaurant.jules-martin
+        kind: relationship.restaurant.mentor-to-new-hire
+    presentation: presentation.character.restaurant.ray-morales
+    presentation_fallback: presentation.fallback.character
+
+  - id: character.restaurant.jules-martin
+    industry: industry.restaurant
+    display_name: Jules Martin
+    role: role.restaurant.new-hire
+    motivation: Do the job correctly without constantly asking someone to rescue the work.
+    known_facts: [knowledge.restaurant.documented-happy-path]
+    blind_spots: [knowledge.restaurant.local-priorities, knowledge.restaurant.rare-tray-orientation]
+    authority: [authority.restaurant.perform-assigned-work, authority.restaurant.request-clarification]
+    relationships:
+      - character: character.restaurant.ray-morales
+        kind: relationship.restaurant.new-hire-to-mentor
+      - character: character.restaurant.avery-chen
+        kind: relationship.restaurant.worker-to-manager
+    presentation: presentation.character.restaurant.jules-martin
+    presentation_fallback: presentation.fallback.character
+
+  - id: character.restaurant.tessa-brooks
+    industry: industry.restaurant
+    display_name: Tessa Brooks
+    role: role.restaurant.service-liaison
+    motivation: Have the correct clean items available when customers need them.
+    known_facts: [knowledge.restaurant.downstream-demand, knowledge.restaurant.service-starvation]
+    blind_spots: [knowledge.restaurant.back-of-house-root-causes]
+    authority: [authority.restaurant.report-service-demand, authority.restaurant.escalate-shortage]
+    relationships:
+      - character: character.restaurant.avery-chen
+        kind: relationship.restaurant.service-liaison-to-manager
+      - character: character.restaurant.ray-morales
+        kind: relationship.restaurant.downstream-to-back-of-house
+    barks:
+      - id: dialogue.restaurant.tessa.glass-pressure
+        quest: quest.restaurant.first-shift.find-the-constraint
+        trigger: queue-pressure
+        priority: important
+        cooldown_ticks: 60
+        line: We are out of clean glasses at service while the dish pit is still busy.
+    presentation: presentation.character.restaurant.tessa-brooks
+    presentation_fallback: presentation.fallback.character
+
+  - id: character.restaurant.devon-price
+    industry: industry.restaurant
+    display_name: Devon Price
+    role: role.restaurant.maintenance-support
+    motivation: Keep equipment reliable without replacing parts that are not actually faulty.
+    known_facts: [knowledge.restaurant.physical-washer-state, knowledge.restaurant.reported-washer-state]
+    blind_spots: [knowledge.restaurant.whole-process-priority]
+    authority: [authority.restaurant.inspect-equipment, authority.restaurant.block-unsafe-machine-use]
+    relationships:
+      - character: character.restaurant.avery-chen
+        kind: relationship.restaurant.maintenance-to-manager
+      - character: character.restaurant.ray-morales
+        kind: relationship.restaurant.maintenance-to-operator
+    barks:
+      - id: dialogue.restaurant.devon.ready-disagrees
+        quest: quest.restaurant.first-shift.investigate-the-signal
+        trigger: automation-incident
+        priority: critical
+        cooldown_ticks: 120
+        line: Ready is what the panel reports. The machine is still occupied.
+    presentation: presentation.character.restaurant.devon-price
+    presentation_fallback: presentation.fallback.character
+
+scenarios:
+  - id: scenario.restaurant.first-shift
+    industry: industry.restaurant
+    facility: facility.restaurant.rossis.back-of-house
+    processes: [process.restaurant.dishwashing.first-shift]
+    items: [item.restaurant.dishware]
+    characters: [character.restaurant.avery-chen, character.restaurant.ray-morales, character.restaurant.jules-martin, character.restaurant.tessa-brooks, character.restaurant.devon-price]
+    seed: first-shift-v1
+    narrative:
+      chapter_title: ROSSI'S / FIRST SHIFT
+      briefing:
+        - title: SERVICE OPENS SOON
+          body: Avery Chen needs the dish station ready before dinner demand arrives. Keep clean dishes reaching service without trading away safety or exhausting the crew.
+        - title: LEARN THE ROOM
+          body: Ray Morales knows how this station behaves when it is busy, including details no checklist has captured. Work beside him, watch where dishes wait, and trust visible consequences over assumptions.
+        - title: KEEP SERVICE IN VIEW
+          body: Tessa Brooks can tell you what the dining room needs and when it is waiting. Restore one plate first; the rest of the shift will reveal which handoffs, facts, and signals deserve attention.
+      debrief_summary: Avery gives you ownership of a station that now has a shorter flow, shared operating knowledge, and a washer rule proved against the failure that exposed it.
+      debrief_questions:
+        - What constrained glass service, and which visible evidence changed your mind?
+        - Which facts failed to transfer to Jules, and how did Ray's experience make the process safer?
+        - Why did Devon's physical check, the incident replay, and the live shift provide stronger proof than one successful cycle?
+    dish_station:
+      initial_dirty:
+        plates: 6
+        glasses: 2
+        trays: 0
+      initial_available:
+        plates: 0
+        glasses: 0
+        trays: 0
+      arrival_interval_ticks: 30
+      glass_every_arrivals: 3
+      rack_capacity: 12
+      washer_cycle_ticks: 20
+      worker_action_interval_ticks: 5
+      flow_cell_worker_action_interval_ticks: 4
+      sticky_ready_fault_after_automated_starts: 2
+      sticky_ready_fault_permille_per_start: 0
+      demand_kind: glass
+      demand_interval_ticks: 15
+      initial_rush_enabled: false
+      initial_new_hire_enabled: false
+      initial_new_hire_knowledge: none
+      initial_automation_policy: off
+      initial_layout: linear
+      economy:
+        completed_dish_value: 120
+        labor_ticks_per_work_action: 1
+        labor_cost_per_tick: 3
+        staffing_cost_per_enabled_tick: 1
+        tray_rework_cost: 35
+        service_shortage_downtime_cost: 80
+        automation_incident_downtime_cost: 120
+        flow_cell_investment_cost: 180
+
+quests:
+  - id: quest.restaurant.first-shift.clock-in
+    scenario: scenario.restaurant.first-shift
+    participants: [character.restaurant.avery-chen, character.restaurant.ray-morales]
+    objective: Return the plate Avery needs to service through the complete dish-station flow.
+    completion:
+      metric: process.completed.count
+      operator: greater_than_or_equal
+      value: 1
+    narrative:
+      runtime_id: clock-in
+      sequence: 1
+      title: CLOCK IN
+      situation: Avery needs one clean plate before service opens, and Ray expects you to learn the station by working it.
+      discovery: Ray's familiar routine becomes visible as the plate changes state and waits between stations.
+      unlock_rationale: You followed one real dish through every state.
+      reward:
+        experience: 100
+        capability: capability.state-lens
+      steps:
+        - id: restock-first-dish
+          text: RESTOCK ONE CLEAN PLATE
+
+  - id: quest.restaurant.first-shift.find-the-constraint
+    scenario: scenario.restaurant.first-shift
+    participants: [character.restaurant.ray-morales, character.restaurant.tessa-brooks]
+    objective: Find where Tessa's needed glasses are waiting and identify the constraint on service supply.
+    completion:
+      metric: service.shortage.count
+      operator: greater_than_or_equal
+      value: 1
+    narrative:
+      runtime_id: find-the-constraint
+      sequence: 2
+      title: WHERE DID THE GLASSES GO?
+      situation: Tessa is waiting for glasses even though the dish room is busy and unfinished work is moving.
+      discovery: A busy room can still starve service when the needed work waits in the wrong stage.
+      unlock_rationale: The waiting glasses made the real constraint visible.
+      reward:
+        experience: 200
+        capability: capability.layout-editor
+      steps:
+        - id: enable-dinner-rush
+          text: LET TESSA OPEN DINNER SERVICE WITH {binding}
+          input_action: toggle-rush
+        - id: await-service-shortage
+          text: KEEP UP AND WATCH SERVICE SUPPLY
+        - id: inspect-shortage
+          text: USE {binding} TO INSPECT WHERE DISHES ARE WAITING
+          input_action: toggle-process-lens
+        - id: choose-bottleneck
+          text: SELECT THE CONSTRAINING WORKSTATION AND CONFIRM WITH {binding}
+          input_action: confirm-bottleneck
+
+  - id: quest.restaurant.first-shift.improve-the-flow
+    scenario: scenario.restaurant.first-shift
+    participants: [character.restaurant.ray-morales, character.restaurant.tessa-brooks]
+    objective: Shorten Ray's handling route and prove that Tessa receives the scarce dish.
+    completion:
+      metric: service.available.count
+      operator: greater_than_or_equal
+      value: 1
+    narrative:
+      runtime_id: improve-the-flow
+      sequence: 3
+      title: DINNER RUSH
+      situation: Ray crosses the same floor at every handoff while Tessa continues waiting for glasses.
+      discovery: A shorter route matters only when the needed glass reaches service sooner.
+      unlock_rationale: Better flow made Ray's unwritten choices easier to see.
+      reward:
+        experience: 300
+        capability: capability.knowledge-lens
+      steps:
+        - id: improve-layout
+          text: USE {binding} TO ARRANGE A SHORTER U-SHAPED FLOW CELL
+          input_action: configure-flow-cell
+        - id: validate-bottleneck
+          text: MOVE ONE GLASS THROUGH THE FULL PROCESS
+        - id: await-validation-demand
+          text: WATCH WHETHER SERVICE CONSUMES THE CLEAN GLASS
+
+  - id: quest.restaurant.first-shift.transfer-the-work
+    scenario: scenario.restaurant.first-shift
+    participants: [character.restaurant.avery-chen, character.restaurant.ray-morales, character.restaurant.jules-martin]
+    objective: Give Jules enough shared knowledge to restore a rush glass without rescue.
+    completion:
+      metric: service.available.count
+      operator: greater_than_or_equal
+      value: 1
+    narrative:
+      runtime_id: transfer-the-work
+      sequence: 4
+      title: THE NEW HIRE
+      situation: Avery brings Jules onto the station, but the new hire knows only what Ray and you make explicit.
+      discovery: Jules can follow the written flow perfectly and still miss the priority living in Ray's head.
+      unlock_rationale: Jules exposed the first missing fact in the shared process.
+      reward:
+        experience: 300
+        capability: capability.exception-notebook
+      steps:
+        - id: invite-new-hire
+          text: BRING JULES ONTO THE STATION WITH {binding}
+          input_action: toggle-new-hire
+        - id: train-new-hire
+          text: SHARE THE BASIC DISH FLOW WITH {binding}
+          input_action: train-happy-path
+        - id: observe-new-hire
+          text: OBSERVE THE DELEGATED PROCESS DURING THE RUSH
+        - id: document-glass-priority
+          text: ADD RAY'S RUSH GLASS PRIORITY WITH {binding}
+          input_action: train-rush-priority
+        - id: validate-delegation
+          text: LET THE NEW HIRE RESTORE A GLASS TO SERVICE
+
+  - id: quest.restaurant.first-shift.capture-the-exception
+    scenario: scenario.restaurant.first-shift
+    participants: [character.restaurant.ray-morales, character.restaurant.jules-martin]
+    objective: Capture Ray's rare-tray knowledge so Jules can complete the work without rework.
+    completion:
+      metric: process.completed.count
+      operator: greater_than_or_equal
+      value: 1
+    narrative:
+      runtime_id: capture-the-exception
+      sequence: 5
+      title: THE RARE TRAY
+      situation: Jules follows the shared steps, but an uncommon tray returns dirty because its orientation was never written down.
+      discovery: Ray's exception is not a shortcut; it is part of what correct work requires.
+      unlock_rationale: The shared process now includes the exception that caused real rework.
+      reward:
+        experience: 400
+        capability: capability.automation-workbench
+      steps:
+        - id: observe-rare-tray
+          text: OBSERVE HOW THE NEW HIRE HANDLES THE RARE TRAY
+        - id: document-rare-tray
+          text: RECORD RAY'S RARE TRAY ORIENTATION WITH {binding}
+          input_action: train-rare-tray
+        - id: validate-rare-tray
+          text: LET THE NEW HIRE RETRY THE RARE TRAY
+
+  - id: quest.restaurant.first-shift.investigate-the-signal
+    scenario: scenario.restaurant.first-shift
+    participants: [character.restaurant.avery-chen, character.restaurant.devon-price]
+    objective: Help Devon find where the Ready report first disagreed with the occupied washer and reproduce the unsafe request.
+    completion:
+      metric: process.completed.count
+      operator: greater_than_or_equal
+      value: 1
+    narrative:
+      runtime_id: investigate-the-signal
+      sequence: 6
+      title: IT SAID IT WAS READY
+      situation: Avery approves a washer-start rule, but Devon warns that the Ready light can disagree with the machine in front of you.
+      discovery: The panel reports what its signal knows; Devon's physical check reveals what the washer can actually accept.
+      unlock_rationale: The incident preserved the first moment when report and reality separated.
+      reward:
+        experience: 500
+        capability: capability.runtime-trace
+      steps:
+        - id: offer-automation
+          text: OPEN THE WASHER RULE WITH {binding} AND ENABLE REPORTED READY
+          input_action: automation-editor-toggle
+        - id: observe-automation
+          text: OBSERVE SEVERAL AUTOMATED WASHER CYCLES
+        - id: investigate-automation
+          text: INSPECT THE FAILED WASHER START WITH {binding}
+          input_action: inspect-incident
+        - id: replay-automation
+          text: REPLAY THE CAPTURED DECISION WITH {binding}
+          input_action: replay-incident
+
+  - id: quest.restaurant.first-shift.prove-the-fix
+    scenario: scenario.restaurant.first-shift
+    participants: [character.restaurant.avery-chen, character.restaurant.devon-price]
+    objective: Add Devon's physical readiness check and prove the captured unsafe request is rejected.
+    completion:
+      metric: process.completed.count
+      operator: greater_than_or_equal
+      value: 1
+    narrative:
+      runtime_id: prove-the-fix
+      sequence: 7
+      title: PROVE THE FIX
+      situation: Avery needs evidence that the corrected rule rejects the same occupied-washer condition, not reassurance from an easy cycle.
+      discovery: Devon's check becomes trustworthy when the captured failure can be repeated and safely refused.
+      unlock_rationale: The repaired rule passed the failure that originally exposed it.
+      reward:
+        experience: 700
+        capability: capability.responsibility-map
+      steps:
+        - id: refine-automation
+          text: ADD DEVON'S PHYSICAL READY CHECK WITH {binding}
+          input_action: automation-editor-toggle
+        - id: validate-automation
+          text: RECREATE THE STUCK READY CONDITION
+        - id: validate-regression
+          text: RETEST THE CAPTURED INCIDENT WITH {binding}
+          input_action: replay-incident
+
+  - id: quest.restaurant.first-shift.own-the-shift
+    scenario: scenario.restaurant.first-shift
+    participants: [character.restaurant.avery-chen, character.restaurant.ray-morales, character.restaurant.jules-martin, character.restaurant.tessa-brooks, character.restaurant.devon-price]
+    objective: Hold Avery's shift through three service checks without a shortage or unsafe washer request.
+    completion:
+      metric: service.shortage.count
+      operator: equal
+      value: 0
+    narrative:
+      runtime_id: own-the-shift
+      sequence: 8
+      title: OWN THE SHIFT
+      situation: Avery hands you the station while Ray, Jules, Tessa, and Devon depend on the changes holding together under dinner demand.
+      discovery: The station earns trust when service, shared knowledge, and the guarded washer hold together in operation.
+      unlock_rationale: The crew completed a live shift window without another shortage or unsafe request.
+      reward:
+        experience: 900
+        capability: capability.shift-scorecard
+      steps:
+        - id: shift-review
+          text: PREPARE CLEAN GLASSES BEFORE AVERY HANDS OVER THE SHIFT
+        - id: validate-shift
+          text: KEEP TESSA SUPPLIED THROUGH THREE SERVICE CHECKS
+        - id: episode-complete
+          text: FIRST SHIFT COMPLETE - OPEN AVERY'S REPORT WITH {binding}
+          input_action: shift-report-toggle

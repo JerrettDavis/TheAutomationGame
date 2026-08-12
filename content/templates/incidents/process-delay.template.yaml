@@ -1,0 +1,28 @@
+template_schema_version: 1
+template_id: template.incident.restaurant.process-delay
+template_version: 1
+parameters:
+  incident-slug: token
+  duration-ticks: positive_integer
+  added-cycle-ticks: positive_integer
+variants:
+  trigger-tick:
+    kind: non_negative_integer
+    options: [1, 2, 3]
+content: |
+  schema_version: 1
+  industries:
+    - id: industry.restaurant
+      display_name: Restaurant
+  incidents:
+    - id: incident.restaurant.{{parameter:incident-slug}}
+      industry: industry.restaurant
+      display_name: Washer Process Delay
+      trigger_at_tick: {{variant:trigger-tick}}
+      scope: dish-station
+      observable: The washer cycle is taking longer than its ordinary cadence.
+      evidence: Cycle timing shows added ticks after the incident starts.
+      recovery: Washer timing returns to its configured cadence.
+      process_delay:
+        duration_ticks: {{parameter:duration-ticks}}
+        added_cycle_ticks: {{parameter:added-cycle-ticks}}

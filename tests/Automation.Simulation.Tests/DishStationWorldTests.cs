@@ -8,9 +8,9 @@ public sealed class DishStationWorldTests
     [Fact]
     public void SandboxPlacementAndMovementAreAuthoritativeAndValidated()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
 
-        var move = world.ExecuteNow(new MovePlayerCommand(world.Tick, new FloorCell(3, 3)));
+        var move = world.ExecuteNow(new MovePlayerCommand(world.Tick, new FloorCell(2, 2)));
         var place = world.ExecuteNow(new PlaceDishStationFixtureCommand(world.Tick, DishStationFixture.Rack, new FloorCell(4, 3)));
         var overlap = world.ExecuteNow(new PlaceDishStationFixtureCommand(world.Tick, DishStationFixture.Scrape, new FloorCell(4, 3)));
         var outside = world.ExecuteNow(new MovePlayerCommand(world.Tick, new FloorCell(50, 50)));
@@ -22,14 +22,52 @@ public sealed class DishStationWorldTests
         Assert.False(outside.Success);
         Assert.Equal(DishStationLayout.Custom, snapshot.Layout.Layout);
         Assert.Equal(new FloorCell(4, 3), snapshot.Layout.Placements.Rack);
-        Assert.Equal(new FloorCell(3, 3), snapshot.Layout.PlayerCell);
-        Assert.Equal(4, snapshot.Layout.SandboxMovementSteps);
+        Assert.Equal(new FloorCell(2, 2), snapshot.Layout.PlayerCell);
+        Assert.Equal(1, snapshot.Layout.SandboxMovementSteps);
+    }
+
+    [Fact]
+    public void DirectMovementRejectsFixtureFootprintsLongStepsAndCornerCutting()
+    {
+        var world = TestDishStationScenario.World();
+        var original = world.PlayerCell;
+
+        var fixture = world.ExecuteNow(new MovePlayerCommand(world.Tick, world.Placements.Scrape));
+        var longStep = world.ExecuteNow(new MovePlayerCommand(world.Tick, new FloorCell(5, 5)));
+
+        Assert.False(fixture.Success);
+        Assert.False(longStep.Success);
+        Assert.Equal(original, world.PlayerCell);
+
+        Assert.True(world.ExecuteNow(new MovePlayerCommand(world.Tick, new FloorCell(2, 2))).Success);
+        var cornerCut = world.ExecuteNow(new MovePlayerCommand(world.Tick, new FloorCell(1, 1)));
+
+        Assert.False(cornerCut.Success);
+        Assert.Equal(new FloorCell(2, 2), world.PlayerCell);
+    }
+
+    [Fact]
+    public void PlacementRejectsSealingAWorkstationInteractionPort()
+    {
+        var world = TestDishStationScenario.World();
+        foreach (var cell in world.Topology.FindPath(world.PlayerCell, new FloorCell(5, 5)).Skip(1))
+            Assert.True(world.ExecuteNow(new MovePlayerCommand(world.Tick, cell)).Success);
+
+        Assert.True(world.ExecuteNow(new PlaceDishStationFixtureCommand(world.Tick, DishStationFixture.Rack, new FloorCell(1, 2))).Success);
+        Assert.True(world.ExecuteNow(new PlaceDishStationFixtureCommand(world.Tick, DishStationFixture.Washer, new FloorCell(0, 1))).Success);
+        Assert.True(world.ExecuteNow(new PlaceDishStationFixtureCommand(world.Tick, DishStationFixture.Unload, new FloorCell(2, 1))).Success);
+
+        var result = world.ExecuteNow(new PlaceDishStationFixtureCommand(world.Tick, DishStationFixture.DryRestock, new FloorCell(1, 0)));
+
+        Assert.False(result.Success);
+        Assert.Contains("disconnects", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(new FloorCell(1, 0), world.Placements.DryRestock);
     }
 
     [Fact]
     public void OccupiedWasherCannotBeRelocated()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Scrape, DishKind.Plate));
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Rack, DishKind.Plate));
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.StartWasher, DishKind.Plate));
@@ -54,7 +92,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void ManualEpisodeProducesAvailableDish()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
 
         Assert.True(world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Scrape, DishKind.Plate)).Success);
         Assert.True(world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Rack, DishKind.Plate)).Success);
@@ -82,7 +120,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void InvalidTransitionIsRejectedWithoutMutation()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
 
         var result = world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Rack, DishKind.Plate));
 
@@ -94,7 +132,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void RushMakesGlassBottleneckObservable()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         world.ExecuteNow(new SetRushCommand(world.Tick, true));
 
         Advance(world, 31);
@@ -106,7 +144,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void GodSetupConfiguresSupplyThroughCommands()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
 
         var result = world.ExecuteNow(new ConfigureDishSupplyCommand(world.Tick, DishState.Available, DishKind.Glass, 10));
 
@@ -118,7 +156,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void ScenarioConfigurationControlsCapacityTimingArrivalsAndDemand()
     {
-        var scenario = new DishStationScenarioConfiguration
+        var scenario = TestDishStationScenario.Reference with
         {
             InitialDirty = new(2, 0),
             ArrivalIntervalTicks = 4,
@@ -145,13 +183,14 @@ public sealed class DishStationWorldTests
         Assert.Equal(2, world.ServiceShortages);
         Assert.Equal(1, world.At(DishState.WashedInMachine).Plates);
         Assert.Equal(1, world.At(DishState.Dirty).Glasses);
-        Assert.Contains(world.Notifications, notification => notification.Message.Contains("3 ticks", StringComparison.Ordinal));
+        Assert.Contains(world.Notifications, notification =>
+            notification.Title == "Washer started" && notification.Message.Contains("cycle is underway", StringComparison.Ordinal));
     }
 
     [Fact]
     public void ScenarioCanStartWithKnowledgeAutomationLayoutAndGuaranteedFaultRisk()
     {
-        var scenario = new DishStationScenarioConfiguration
+        var scenario = TestDishStationScenario.Reference with
         {
             InitialDirty = new(2, 0),
             InitialNewHireEnabled = true,
@@ -178,15 +217,15 @@ public sealed class DishStationWorldTests
     [Fact]
     public void InvalidScenarioConfigurationIsRejectedAtWorldBoundary()
     {
-        var scenario = new DishStationScenarioConfiguration { RackCapacity = 0 };
+        var scenario = TestDishStationScenario.Reference with { RackCapacity = 0 };
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => new DishStationWorld(configuration: scenario));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DishStationWorld(42, scenario));
     }
 
     [Fact]
     public void ResetCommandRestoresStartingEpisode()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         world.ExecuteNow(new SetRushCommand(world.Tick, true));
         world.ExecuteNow(new AddDirtyDishesCommand(world.Tick, DishKind.Glass, 12));
         Advance(world, 20);
@@ -205,7 +244,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void IntroChoiceAndEarlyCareerProgressReplayDeterministically()
     {
-        var world = new DishStationWorld(23);
+        var world = TestDishStationScenario.World(23);
         var intro = world.ExecuteNow(new CompleteIntroCommand(world.Tick, GuidanceMode.Contextual, true, true));
         RunManualPlate(world);
 
@@ -228,7 +267,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void ProcessTelemetryMakesQueuePressureObservable()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
 
         Advance(world, 10);
         var snapshot = world.Snapshot();
@@ -242,7 +281,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void StateTraceRecordsAuthoritativeTransitionCauses()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Scrape, DishKind.Plate));
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Rack, DishKind.Plate));
         world.ExecuteNow(new ConfigureWasherAutomationCommand(world.Tick, WasherAutomationPolicy.ReportedReadyOnly));
@@ -260,7 +299,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void TutorialEpisodeAdvancesFromManualWorkToEvidence()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Scrape, DishKind.Plate));
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Rack, DishKind.Plate));
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.StartWasher, DishKind.Plate));
@@ -272,6 +311,9 @@ public sealed class DishStationWorldTests
         world.ExecuteNow(new SetRushCommand(world.Tick, true));
         Advance(world, 10);
         Assert.Equal(DishTutorialStage.InspectShortage, world.TutorialStage);
+        Assert.Contains(world.Snapshot().NarrativeEvents, narrativeEvent =>
+            narrativeEvent.Kind == DishStationNarrativeEventKind.QueuePressure &&
+            narrativeEvent.Quest == DishStationQuestId.FindTheConstraint);
 
         var result = world.ExecuteNow(new InspectProcessCommand(world.Tick));
 
@@ -316,6 +358,9 @@ public sealed class DishStationWorldTests
 
         Assert.Equal(DishTutorialStage.DocumentRareTray, world.TutorialStage);
         Assert.True(world.Snapshot().NewHire.TrayReworkIncidents > 0);
+        Assert.Equal(world.Snapshot().NewHire.TrayReworkIncidents, world.Snapshot().Economy.ReworkIncidents);
+        Assert.Equal(world.Snapshot().NewHire.TrayReworkIncidents * world.Configuration.Economy.TrayReworkCost,
+            world.Snapshot().Economy.WasteCost);
 
         world.ExecuteNow(new TrainNewHireCommand(world.Tick, DishProcessSpecification.FullyDocumented));
         for (var i = 0; i < 200 && world.TutorialStage != DishTutorialStage.OfferAutomation; i++) world.Advance();
@@ -330,6 +375,9 @@ public sealed class DishStationWorldTests
         Assert.True(world.Snapshot().Automation.StickyReadySignal);
         Assert.True(world.Snapshot().Automation.Halted);
         Assert.True(world.Snapshot().Automation.Incidents > 0);
+        Assert.Contains(world.Snapshot().NarrativeEvents, narrativeEvent =>
+            narrativeEvent.Kind == DishStationNarrativeEventKind.AutomationIncident &&
+            narrativeEvent.Quest == DishStationQuestId.InvestigateTheSignal);
 
         world.ExecuteNow(new InspectAutomationIncidentCommand(world.Tick));
         Assert.Equal(DishTutorialStage.ReplayAutomation, world.TutorialStage);
@@ -347,7 +395,7 @@ public sealed class DishStationWorldTests
         Assert.Equal(DishTutorialStage.ShiftReview, world.TutorialStage);
         Assert.True(world.Snapshot().Automation.PreventedUnsafeStarts > 0);
         Assert.True(world.Snapshot().Automation.Incident.RegressionPassed);
-        Assert.Contains(world.Notifications, notification => notification.Title == "Regression passed");
+        Assert.Contains(world.Notifications, notification => notification.Title == "Captured failure rejected");
         Assert.Equal(2500, world.Snapshot().Progression.Experience);
         Assert.Equal(6, world.Snapshot().Progression.Level);
 
@@ -360,7 +408,7 @@ public sealed class DishStationWorldTests
         for (var i = 0; i < 40 && world.Snapshot().ShiftTrial.Status == ShiftTrialStatus.Running; i++) world.Advance();
         Assert.Equal(ShiftTrialStatus.Failed, world.Snapshot().ShiftTrial.Status);
         Assert.Equal(DishTutorialStage.ShiftReview, world.TutorialStage);
-        Assert.Contains(world.Notifications, notification => notification.Title == "Reliability window failed");
+        Assert.Contains(world.Notifications, notification => notification.Title == "Shift handoff interrupted");
 
         world.ExecuteNow(new SetNewHireEnabledCommand(world.Tick, true));
         world.ExecuteNow(new ConfigureWasherAutomationCommand(world.Tick, WasherAutomationPolicy.CorroboratedReady));
@@ -374,6 +422,9 @@ public sealed class DishStationWorldTests
         Assert.Equal(3, world.Snapshot().ShiftTrial.SuccessfulDemandChecks);
         Assert.Equal(2, world.Snapshot().ShiftTrial.Attempts);
         Assert.Contains(world.Notifications, notification => notification.Title == "Shift owned");
+        Assert.Contains(world.Snapshot().NarrativeEvents, narrativeEvent =>
+            narrativeEvent.Kind == DishStationNarrativeEventKind.ShiftSucceeded &&
+            narrativeEvent.Quest == DishStationQuestId.OwnTheShift);
         Assert.True(world.Snapshot().ShiftReport.Available);
         Assert.Equal(world.Tick.Value, world.Snapshot().ShiftReport.CompletedAtTick);
         Assert.Equal(3400, world.Snapshot().Progression.Experience);
@@ -396,8 +447,10 @@ public sealed class DishStationWorldTests
 
         var restored = DishStationWorld.Restore(world.CreateReplaySave()).Snapshot();
         Assert.Equal(world.Snapshot().ShiftTrial, restored.ShiftTrial);
+        Assert.Equal(world.Snapshot().Economy, restored.Economy);
         Assert.Equal(world.Snapshot().ShiftReport, restored.ShiftReport);
         Assert.Equal(world.Snapshot().Progression.Quests.ToArray(), restored.Progression.Quests.ToArray());
+        Assert.Equal(world.Snapshot().NarrativeEvents.ToArray(), restored.NarrativeEvents.ToArray());
         Assert.Equal(3400, restored.Progression.Experience);
     }
 
@@ -419,7 +472,7 @@ public sealed class DishStationWorldTests
     [Fact]
     public void ResidenceTelemetryTracksObservedStageTime()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         Advance(world, 5);
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Scrape, DishKind.Plate));
         Advance(world, 3);
@@ -456,7 +509,7 @@ public sealed class DishStationWorldTests
 
     private static DishStationSnapshot RunDeterministicEpisode(int seed)
     {
-        var world = new DishStationWorld(seed);
+        var world = TestDishStationScenario.World(seed);
         world.Schedule(new SetRushCommand(new(2), true));
         Advance(world, 100);
         return world.Snapshot() with { LatestNotification = null };
@@ -474,7 +527,7 @@ public sealed class DishStationWorldTests
 
     private static NewHireSnapshot RunDelegatedSample(DishProcessSpecification specification)
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         world.ExecuteNow(new SetNewHireEnabledCommand(world.Tick, true));
         world.ExecuteNow(new TrainNewHireCommand(world.Tick, specification));
         world.ExecuteNow(new SetRushCommand(world.Tick, true));
@@ -484,7 +537,7 @@ public sealed class DishStationWorldTests
 
     private static DishStationSnapshot RunWorkerForLayout(DishStationPlacements placements, bool placeCustom)
     {
-        var configuration = new DishStationScenarioConfiguration
+        var configuration = TestDishStationScenario.Reference with
         {
             InitialDirty = new DishCounts(30, 0, 0),
             ArrivalIntervalTicks = 1000,
@@ -503,7 +556,7 @@ public sealed class DishStationWorldTests
 
     private static AutomationSnapshot RunAutomationIncidentReplay()
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Scrape, DishKind.Plate));
         world.ExecuteNow(new PerformDishActionCommand(world.Tick, DishAction.Rack, DishKind.Plate));
         world.ExecuteNow(new ConfigureWasherAutomationCommand(world.Tick, WasherAutomationPolicy.ReportedReadyOnly));
@@ -524,7 +577,7 @@ public sealed class DishStationWorldTests
 
     private static DishStationSnapshot RunLayoutWorker(DishStationLayout layout)
     {
-        var world = new DishStationWorld();
+        var world = TestDishStationScenario.World();
         world.ExecuteNow(new ConfigureDishStationLayoutCommand(world.Tick, layout));
         world.ExecuteNow(new SetNewHireEnabledCommand(world.Tick, true));
         world.ExecuteNow(new TrainNewHireCommand(world.Tick, DishProcessSpecification.HappyPath));

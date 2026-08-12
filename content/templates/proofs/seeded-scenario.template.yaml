@@ -1,0 +1,100 @@
+template_schema_version: 1
+template_id: template.content.restaurant.seeded-scenario-proof
+template_version: 1
+
+parameters:
+  facility-slug: token
+  rack-capacity: positive_integer
+
+variants:
+  demand-kind:
+    kind: token
+    options: [plate, glass, tray]
+
+content: |
+  schema_version: 1
+
+  industries:
+    - id: industry.restaurant
+      display_name: Restaurant
+
+  items:
+    - id: item.restaurant.dish.plate
+      industry: industry.restaurant
+      display_name: Plate
+      states: [dirty, clean]
+
+  workstations:
+    - id: workstation.restaurant.washer.template-proof
+      industry: industry.restaurant
+      display_name: Dish Washer
+      accepted_items: [item.restaurant.dish.plate]
+      input_state: dirty
+      output_state: clean
+      presentation: presentation.workstation.dish-washer.standard
+      presentation_fallback: presentation.fallback.workstation
+
+  facilities:
+    - id: facility.restaurant.{{parameter:facility-slug}}
+      industry: industry.restaurant
+      display_name: Template Proof Facility
+      workstations: [workstation.restaurant.washer.template-proof]
+
+  processes:
+    - id: process.restaurant.dishwashing.template-proof
+      industry: industry.restaurant
+      allow_cycles: false
+      steps:
+        - id: wash
+          workstation: workstation.restaurant.washer.template-proof
+      routes: []
+
+  characters:
+    - id: character.restaurant.template-proof-worker
+      industry: industry.restaurant
+      display_name: Template Proof Worker
+      role: role.restaurant.dish-worker
+      motivation: Prove deterministic template expansion.
+      known_facts: [knowledge.restaurant.template-proof-flow]
+      blind_spots: [knowledge.restaurant.template-proof-exceptions]
+      authority: [authority.restaurant.perform-template-proof-work]
+      relationships: []
+      presentation: presentation.character.restaurant.template-proof-worker
+      presentation_fallback: presentation.fallback.character
+
+  scenarios:
+    - id: scenario.restaurant.template-proof
+      industry: industry.restaurant
+      facility: facility.restaurant.{{parameter:facility-slug}}
+      processes: [process.restaurant.dishwashing.template-proof]
+      items: [item.restaurant.dish.plate]
+      characters: [character.restaurant.template-proof-worker]
+      seed: template-proof-v1
+      dish_station:
+        initial_dirty: { plates: 6, glasses: 2, trays: 0 }
+        initial_available: { plates: 0, glasses: 0, trays: 0 }
+        arrival_interval_ticks: 30
+        glass_every_arrivals: 3
+        rack_capacity: {{parameter:rack-capacity}}
+        washer_cycle_ticks: 20
+        worker_action_interval_ticks: 5
+        flow_cell_worker_action_interval_ticks: 4
+        sticky_ready_fault_after_automated_starts: 2
+        sticky_ready_fault_permille_per_start: 0
+        demand_kind: {{variant:demand-kind}}
+        demand_interval_ticks: 15
+        initial_rush_enabled: false
+        initial_new_hire_enabled: false
+        initial_new_hire_knowledge: none
+        initial_automation_policy: off
+        initial_layout: linear
+
+  quests:
+    - id: quest.restaurant.template-proof.restore-service
+      scenario: scenario.restaurant.template-proof
+      participants: [character.restaurant.template-proof-worker]
+      objective: Return one clean plate to service.
+      completion:
+        metric: service.available.count
+        operator: greater_than_or_equal
+        value: 1

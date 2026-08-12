@@ -1,0 +1,25 @@
+!Package
+SerializedVersion: {Assets: 3.1.0.0}
+Meta:
+    Name: Automation.Client.Stride
+    Version: 1.0.0
+    Authors: []
+    Owners: []
+    Dependencies: null
+AssetFolders:
+    - Path: !dir Assets
+ResourceFolders:
+    - !dir Resources
+OutputGroupDirectories: {}
+ExplicitFolders: []
+Bundles: []
+TemplateFolders: []
+RootAssets:
+    - 388a45db-7731-49f3-933f-e8b67255f7f2:Imported/KenneyFurnitureKit/Washer
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7001:Audio/DishRoomAmbience
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7002:Audio/Work
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7003:Audio/WasherStart
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7004:Audio/WasherComplete
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7005:Audio/Blocked
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7006:Audio/Failure
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7007:Audio/QuestSuccess

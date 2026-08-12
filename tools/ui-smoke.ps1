@@ -1,7 +1,8 @@
 param(
     [switch]$KeepOpen,
     [switch]$AllowDesktopInput,
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [string]$RetainScreenshotsPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -241,6 +242,7 @@ $previousPlaytestPath = [Environment]::GetEnvironmentVariable("AUTOMATION_PLAYTE
 $previousPlaytestSession = [Environment]::GetEnvironmentVariable("AUTOMATION_PLAYTEST_SESSION_ID", "Process")
 $previousDisableSave = [Environment]::GetEnvironmentVariable("AUTOMATION_DISABLE_CAREER_SAVE", "Process")
 $previousDeveloperTools = [Environment]::GetEnvironmentVariable("AUTOMATION_DEVELOPER_TOOLS", "Process")
+$previousDiagnosticTitle = [Environment]::GetEnvironmentVariable("AUTOMATION_DIAGNOSTIC_TITLE", "Process")
 
 # Verify the ordinary player process does not expose consequence-bypassing tools
 # before the final shift outcome. The semantic driver is deliberately absent.
@@ -248,6 +250,7 @@ $previousDeveloperTools = [Environment]::GetEnvironmentVariable("AUTOMATION_DEVE
 [Environment]::SetEnvironmentVariable("AUTOMATION_WINDOWED", "1", "Process")
 [Environment]::SetEnvironmentVariable("AUTOMATION_DISABLE_CAREER_SAVE", "1", "Process")
 [Environment]::SetEnvironmentVariable("AUTOMATION_DEVELOPER_TOOLS", $null, "Process")
+[Environment]::SetEnvironmentVariable("AUTOMATION_DIAGNOSTIC_TITLE", "1", "Process")
 try {
     $playerProcess = Start-Process -FilePath $executable -PassThru
 }
@@ -256,6 +259,7 @@ finally {
     [Environment]::SetEnvironmentVariable("AUTOMATION_WINDOWED", $previousWindowed, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_DISABLE_CAREER_SAVE", $previousDisableSave, "Process")
     [Environment]::SetEnvironmentVariable("AUTOMATION_DEVELOPER_TOOLS", $previousDeveloperTools, "Process")
+    [Environment]::SetEnvironmentVariable("AUTOMATION_DIAGNOSTIC_TITLE", $previousDiagnosticTitle, "Process")
 }
 try {
     Wait-ForWindow $playerProcess
@@ -320,25 +324,28 @@ try {
         Wait-ForTitle $process "[pointer=$($fixture.Name):" 3
     }
     Move-GamePointer $process 620 365 -Click
+    Wait-ForTitle $process "[click=Service:ROUTE:" 3
+    Wait-ForTitle $process "[player=11,7]" 3
+    Move-GamePointer $process 620 365 -Click
     Wait-ForTitle $process "[click=Service:INSPECT]" 3
     Move-GamePointer $process 548 200 -Click
     Wait-ForTitle $process "[station=RACK]" 3
-    Wait-ForTitle $process "[click=Rack:MOVE]" 3
-    Wait-ForTitle $process "[player=4,1]" 3
+    Wait-ForTitle $process "[click=Rack:ROUTE:" 3
+    Wait-ForTitle $process "[player=4,2]" 3
     Move-GamePointer $process 260 216 -Click
-    Wait-ForTitle $process "[click=FLOOR:MOVE]" 3
+    Wait-ForTitle $process "[click=FLOOR:ROUTE:" 3
     Wait-ForTitle $process "[player=0,5]" 3
     Send-GameControl $process "PreviousWorkstation"
     Wait-ForTitle $process "[station=SCRAPE]" 3
     Send-GameControl $process "ContextWork"
-    Wait-ForTitle $process "[player=1,1]" 3
+    Wait-ForTitle $process "[player=1,2]" 3
     Wait-ForTitle $process "[layout=Linear] [build=False] [route=17]" 3
 
     Send-GameControl $process "ToggleGodMode"
     Wait-ForTitle $process "[god=True]" 3
     Send-GameControl $process "TogglePlacementMode"
     Wait-ForTitle $process "[build=True]" 3
-    Move-GamePointer $process 404 188 -Click
+    Move-GamePointer $process 404 160 -Click
     Wait-ForTitle $process "[layout=Custom] [build=True] [route=18]" 3
     Start-Sleep -Milliseconds 150
     $placementScreenshot = Save-WindowScreenshot $process $windowBounds "placement"
@@ -382,7 +389,7 @@ try {
     Click-UntilTitle $process 678 503 "[detail=False]"
     Click-UntilTitle $process 808 518 "[journal=False]"
 
-    Send-ControlUntilTitle $process "ToggleRush" "Dinner rush"
+    Send-GameControl $process "ToggleRush"
     Wait-ForStage $process "InspectShortage" 8
     Send-ControlUntilStage $process "ToggleProcessLens" "ChooseBottleneck"
     Send-ControlUntilStage $process "ConfirmBottleneck" "ImproveLayout"
@@ -408,13 +415,27 @@ try {
     Send-ControlUntilStage $process "TrainRareTray" "ValidateRareTray"
     Wait-ForStage $process "OfferAutomation" 15
 
-    Send-ControlUntilStage $process "EnableReportedAutomation" "ObserveAutomation"
+    Send-GameControl $process "ToggleAutomationEditor"
+    Send-GameControl $process "AutomationEditorToggleValue"
+    Send-ControlUntilStage $process "AutomationEditorApply" "ObserveAutomation"
+    Send-GameControl $process "ToggleAutomationEditor"
+    Send-GameControl $process "AutomationEditorSaveBaseline"
+    Send-GameControl $process "AutomationEditorClose"
     Wait-ForStage $process "InvestigateAutomation" 15
     Send-ControlUntilStage $process "InspectIncident" "ReplayAutomation"
     Wait-ForStage $process "ReplayAutomation"
     Send-ControlUntilStage $process "ReplayIncident" "RefineAutomation"
     Wait-ForStage $process "RefineAutomation"
-    Send-GameControl $process "EnableSafeAutomation"
+    Send-GameControl $process "ToggleAutomationEditor"
+    Send-GameControl $process "AutomationEditorNext"
+    Send-GameControl $process "AutomationEditorNext"
+    Send-GameControl $process "AutomationEditorNext"
+    Send-GameControl $process "AutomationEditorToggleValue"
+    Send-GameControl $process "AutomationEditorApply"
+    Send-GameControl $process "ToggleAutomationEditor"
+    Send-GameControl $process "AutomationEditorSaveVariant"
+    Send-GameControl $process "AutomationEditorRunComparison"
+    Send-GameControl $process "AutomationEditorClose"
     Wait-ForStage $process "ValidateRegression" 8
     Send-ControlUntilStage $process "ReplayIncident" "ShiftReview"
     Wait-ForTitle $process "[quest=OwnTheShift]" 3
@@ -547,6 +568,17 @@ try {
     Start-Sleep -Milliseconds 150
     $screenshots += Save-WindowScreenshot $process $windowBounds "career-resumed"
     $screenshot = $screenshots[-1]
+    $retainedScreenshots = @()
+    if (-not [string]::IsNullOrWhiteSpace($RetainScreenshotsPath)) {
+        $retainedDirectory = [System.IO.Path]::GetFullPath($RetainScreenshotsPath, $repositoryRoot)
+        New-Item -ItemType Directory -Force -Path $retainedDirectory | Out-Null
+        foreach ($capturedPath in $screenshots | Select-Object -Unique) {
+            $retainedName = [System.IO.Path]::GetFileName($capturedPath).Replace("automation-game-ui-smoke-", "")
+            $retainedPath = Join-Path $retainedDirectory $retainedName
+            Copy-Item -LiteralPath $capturedPath -Destination $retainedPath -Force
+            $retainedScreenshots += $retainedPath
+        }
+    }
     $passed = $true
     [pscustomobject]@{
         Result = "PASS"
@@ -555,6 +587,7 @@ try {
         Screenshot = $screenshot
         Evidence = $playtestFile
         LensScreenshots = $screenshots -join "; "
+        RetainedScreenshots = $retainedScreenshots -join "; "
         WindowTitle = $process.MainWindowTitle
     }
 }

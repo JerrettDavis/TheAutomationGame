@@ -1,0 +1,28 @@
+template_schema_version: 1
+template_id: template.workstation.restaurant.manual-scrape
+template_version: 1
+
+parameters:
+  workstation-slug: token
+
+content: |
+  schema_version: 1
+  industries:
+    - id: industry.restaurant
+      display_name: Restaurant
+  items:
+    - id: item.restaurant.dish
+      industry: industry.restaurant
+      display_name: Dish
+      states: [dirty, scraped]
+  workstations:
+    - id: workstation.restaurant.{{parameter:workstation-slug}}
+      industry: industry.restaurant
+      display_name: Manual Scrape Station
+      accepted_items: [item.restaurant.dish]
+      input_state: dirty
+      output_state: scraped
+      presentation: presentation.workstation.scrape.standard
+      presentation_fallback: presentation.fallback.workstation
+      manual:
+        action: scrape

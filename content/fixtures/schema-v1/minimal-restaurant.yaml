@@ -1,0 +1,82 @@
+schema_version: 1
+
+industries:
+  - id: industry.restaurant
+    display_name: Restaurant
+
+items:
+  - id: item.restaurant.dish.plate
+    industry: industry.restaurant
+    display_name: Plate
+    states: [dirty, clean]
+
+workstations:
+  - id: workstation.restaurant.washer.standard
+    industry: industry.restaurant
+    display_name: Dish Washer
+    accepted_items: [item.restaurant.dish.plate]
+    input_state: dirty
+    output_state: clean
+    presentation: presentation.workstation.dish-washer.standard
+    presentation_fallback: presentation.fallback.workstation
+
+facilities:
+  - id: facility.restaurant.rossis.back-of-house
+    industry: industry.restaurant
+    display_name: Rossi's Back of House
+    workstations: [workstation.restaurant.washer.standard]
+
+processes:
+  - id: process.restaurant.dishwashing.minimal
+    industry: industry.restaurant
+    allow_cycles: false
+    steps:
+      - id: wash
+        workstation: workstation.restaurant.washer.standard
+    routes: []
+
+characters:
+  - id: character.restaurant.ray-morales
+    industry: industry.restaurant
+    display_name: Ray Morales
+    role: role.restaurant.dish-worker
+    motivation: Keep the dish station moving safely.
+    known_facts: [knowledge.restaurant.dish-flow]
+    blind_spots: [knowledge.restaurant.service-timing]
+    authority: [authority.restaurant.perform-dish-work]
+    relationships: []
+    presentation: presentation.character.restaurant.ray-morales
+    presentation_fallback: presentation.fallback.character
+
+scenarios:
+  - id: scenario.restaurant.schema-proof
+    industry: industry.restaurant
+    facility: facility.restaurant.rossis.back-of-house
+    processes: [process.restaurant.dishwashing.minimal]
+    items: [item.restaurant.dish.plate]
+    characters: [character.restaurant.ray-morales]
+    seed: schema-proof-v1
+
+quests:
+  - id: quest.restaurant.schema-proof.restore-service
+    scenario: scenario.restaurant.schema-proof
+    participants: [character.restaurant.ray-morales]
+    objective: Return one clean plate to service.
+    completion:
+      metric: service.available.count
+      operator: greater_than_or_equal
+      value: 1
+
+incidents:
+  - id: incident.restaurant.schema-proof.demand-spike
+    industry: industry.restaurant
+    display_name: Schema Proof Demand Spike
+    trigger_at_tick: 5
+    scope: dish-station
+    observable: Service demand accelerates.
+    evidence: Demand checks occur at the authored interval.
+    recovery: Service returns to its configured cadence.
+    demand_spike:
+      duration_ticks: 3
+      demand_kind: plate
+      interval_ticks: 1

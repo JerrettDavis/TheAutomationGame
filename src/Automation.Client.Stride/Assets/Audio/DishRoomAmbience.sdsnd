@@ -1,0 +1,7 @@
+!Sound
+Id: 12dd0dd7-ccbf-4a18-aeba-4e286e7e7001
+SerializedVersion: {Stride: 2.0.0.0}
+Tags: []
+Source: ../../Resources/Audio/DishRoomAmbience.wav
+StreamFromDisk: false
+Spatialized: false

@@ -1,0 +1,30 @@
+template_schema_version: 1
+template_id: template.incident.restaurant.demand-spike
+template_version: 1
+parameters:
+  incident-slug: token
+  duration-ticks: positive_integer
+  demand-kind: token
+  interval-ticks: positive_integer
+variants:
+  trigger-tick:
+    kind: non_negative_integer
+    options: [1, 2, 3]
+content: |
+  schema_version: 1
+  industries:
+    - id: industry.restaurant
+      display_name: Restaurant
+  incidents:
+    - id: incident.restaurant.{{parameter:incident-slug}}
+      industry: industry.restaurant
+      display_name: Service Demand Spike
+      trigger_at_tick: {{variant:trigger-tick}}
+      scope: dish-station
+      observable: Service consumes the selected dish kind at an accelerated cadence.
+      evidence: Demand checks and shortages appear at the incident interval.
+      recovery: Service demand returns to the configured cadence and dish kind.
+      demand_spike:
+        duration_ticks: {{parameter:duration-ticks}}
+        demand_kind: {{parameter:demand-kind}}
+        interval_ticks: {{parameter:interval-ticks}}

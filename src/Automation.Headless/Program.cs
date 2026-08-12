@@ -3,7 +3,223 @@ using Automation.Domain;
 using Automation.Simulation;
 using Automation.Tools;
 
-var options = HeadlessOptions.Parse(args);
+var expandTemplateIndex = Array.FindIndex(args, argument => string.Equals(argument, "--expand-template", StringComparison.OrdinalIgnoreCase));
+if (expandTemplateIndex >= 0)
+{
+    if (expandTemplateIndex + 1 >= args.Length)
+    {
+        Console.Error.WriteLine("--expand-template requires a template YAML file path.");
+        Environment.ExitCode = 2;
+        return;
+    }
+    var namedSeedIndex = Array.FindIndex(args, argument => string.Equals(argument, "--named-seed", StringComparison.OrdinalIgnoreCase));
+    var namedSeed = namedSeedIndex >= 0 && namedSeedIndex + 1 < args.Length ? args[namedSeedIndex + 1] : null;
+    var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
+    for (var index = 0; index < args.Length; index++)
+    {
+        if (!string.Equals(args[index], "--parameter", StringComparison.OrdinalIgnoreCase)) continue;
+        if (index + 1 >= args.Length || args[index + 1].IndexOf('=') is <= 0)
+        {
+            Console.Error.WriteLine("--parameter requires NAME=VALUE.");
+            Environment.ExitCode = 2;
+            return;
+        }
+        var separator = args[index + 1].IndexOf('=');
+        var name = args[index + 1][..separator];
+        if (!parameters.TryAdd(name, args[index + 1][(separator + 1)..]))
+        {
+            Console.Error.WriteLine($"--parameter '{name}' was supplied more than once.");
+            Environment.ExitCode = 2;
+            return;
+        }
+        index++;
+    }
+    try
+    {
+        var template = ContentTemplateCompilerV1.CompileFile(args[expandTemplateIndex + 1]);
+        var expansion = template.Expand(parameters, namedSeed);
+        var selections = expansion.Provenance.VariantSelections.Count == 0
+            ? "none"
+            : string.Join(',', expansion.Provenance.VariantSelections.Select(pair => $"{pair.Key}={pair.Value}"));
+        Console.WriteLine($"Template schema v{ContentTemplateCompilerV1.TemplateSchemaVersion} | id={template.Id} templateVersion={template.Version} seed={expansion.Provenance.NamedSeed ?? "none"} parameters={expansion.Provenance.Parameters.Count} variants={selections} definitions={expansion.Catalog.Manifest.DefinitionCount} contentSha256={expansion.Catalog.Manifest.Sha256} expansionSha256={expansion.ExpansionSha256}");
+        if (args.Contains("--run-incident", StringComparer.OrdinalIgnoreCase))
+        {
+            if (expansion.Catalog.Incidents.Length == 0)
+                throw new InvalidDataException("Expanded template contains no incident to run.");
+            var ticksIndex = Array.FindIndex(args, argument => string.Equals(argument, "--ticks", StringComparison.OrdinalIgnoreCase));
+            var ticks = ticksIndex >= 0 && ticksIndex + 1 < args.Length && int.TryParse(args[ticksIndex + 1], out var parsedTicks) && parsedTicks >= 0
+                ? parsedTicks
+                : 20;
+            var incidentWorld = new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration);
+            foreach (var definition in expansion.Catalog.Incidents)
+            {
+                var schedule = DishStationIncidentContentAdapter.ToSchedule(definition).Validate();
+                incidentWorld.Schedule(new TriggerDishStationIncidentCommand(schedule.TriggerAt, schedule.Incident));
+            }
+            for (var tick = 0; tick < ticks; tick++) incidentWorld.Advance();
+            foreach (var entry in incidentWorld.Snapshot().Incidents.Trace)
+                Console.WriteLine($"incident t={entry.Tick.Value} id={entry.Id} kind={entry.Kind} phase={entry.Phase} observation={entry.Observation} evidence={entry.Evidence}");
+            Console.WriteLine($"incident-run ticks={ticks} active={incidentWorld.Snapshot().Incidents.Active.Count} trace={incidentWorld.Snapshot().Incidents.Trace.Count}");
+        }
+    }
+    catch (ContentCompilationException exception)
+    {
+        foreach (var diagnostic in exception.Diagnostics) Console.Error.WriteLine(diagnostic);
+        Environment.ExitCode = 1;
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+    {
+        Console.Error.WriteLine($"{args[expandTemplateIndex + 1]}: $: {exception.Message}");
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+
+var compileContentIndex = Array.FindIndex(args, argument => string.Equals(argument, "--compile-content", StringComparison.OrdinalIgnoreCase));
+if (compileContentIndex >= 0)
+{
+    if (compileContentIndex + 1 >= args.Length)
+    {
+        Console.Error.WriteLine("--compile-content requires a YAML file path.");
+        Environment.ExitCode = 2;
+        return;
+    }
+    try
+    {
+        var catalog = ContentCompilerV1.CompileFile(args[compileContentIndex + 1]);
+        var counts = string.Join(',', catalog.Manifest.Counts.OrderBy(pair => pair.Key).Select(pair => $"{pair.Key}={pair.Value}"));
+        Console.WriteLine($"Content schema v{catalog.Manifest.SchemaVersion} | definitions={catalog.Manifest.DefinitionCount} {counts} sha256={catalog.Manifest.Sha256}");
+    }
+    catch (ContentCompilationException exception)
+    {
+        foreach (var diagnostic in exception.Diagnostics) Console.Error.WriteLine(diagnostic);
+        Environment.ExitCode = 1;
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine($"{args[compileContentIndex + 1]}: $: {exception.Message}");
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+
+if (args.Contains("--character-roster-demo", StringComparer.OrdinalIgnoreCase))
+{
+    var catalog = DishStationFirstHoursContent.Catalog;
+    foreach (var character in catalog.Characters.OrderBy(character => character.Id.Value, StringComparer.Ordinal))
+        Console.WriteLine($"character id={character.Id} name={character.DisplayName} role={character.Role} known={character.KnownFacts.Length} blind={character.BlindSpots.Length} authority={character.Authority.Length} relationships={character.Relationships.Length} presentation={character.Presentation} fallback={character.PresentationFallback}");
+    foreach (var quest in DishStationFirstHoursContent.Quests.OrderBy(quest => quest.Sequence))
+    {
+        var participants = string.Join('|', quest.Participants.Select(participant => $"{participant}:{DishStationFirstHoursContent.Character(participant).DisplayName}"));
+        Console.WriteLine($"quest sequence={quest.Sequence} id={quest.ContentId} participants={participants}");
+    }
+    return;
+}
+
+if (args.Contains("--automation-ir-demo", StringComparer.OrdinalIgnoreCase))
+{
+    foreach (var (name, policy) in new[]
+    {
+        ("reported", WasherAutomationPolicy.ReportedReadyOnly),
+        ("corroborated", WasherAutomationPolicy.CorroboratedReady),
+    })
+    {
+        var result = DishStationAutomationRules.Evaluate(policy, rackCount: 1, reportedReady: true, physicalReady: false);
+        Console.WriteLine($"automation-ir policy={name} rule={result.Trace.RuleId} enabled={result.Trace.Enabled} matched={result.ConditionMatched} effects={result.SelectedEffects.Length}");
+        foreach (var observed in result.Trace.ObservedValues)
+            Console.WriteLine($"  observed path={observed.Path} ref={observed.Reference} kind={observed.Value.Kind} value={observed.Value}");
+        foreach (var predicate in result.Trace.Predicates)
+            Console.WriteLine($"  predicate path={predicate.Path} expression={predicate.Expression} result={predicate.Result}");
+        foreach (var selected in result.Trace.SelectedEffects)
+            Console.WriteLine($"  effect order={selected.Order} type={selected.Effect.GetType().Name}");
+    }
+    return;
+}
+
+if (args.Contains("--automation-editor-demo", StringComparer.OrdinalIgnoreCase))
+{
+    var scenario = DishStationFirstHoursContent.ScenarioConfiguration with
+    {
+        InitialDirty = new(4, 0, 0),
+        InitialAvailable = new(0, 0, 0),
+        ArrivalIntervalTicks = 1000,
+        WasherCycleTicks = 2,
+        StickyReadyFaultAfterAutomatedStarts = 1,
+        StickyReadyFaultPermillePerStart = 0,
+        InitialAutomationPolicy = WasherAutomationPolicy.Off,
+    };
+    var demo = new DishStationWorld(42, scenario);
+    demo.ExecuteNow(new PerformDishActionCommand(demo.Tick, DishAction.Scrape, DishKind.Plate));
+    demo.ExecuteNow(new PerformDishActionCommand(demo.Tick, DishAction.Rack, DishKind.Plate));
+    demo.ExecuteNow(new BeginAutomationRuleEditCommand(demo.Tick));
+    demo.ExecuteNow(new SetAutomationRuleEnabledCommand(demo.Tick, true));
+    Console.WriteLine($"automation-editor draft enabled={demo.Snapshot().Automation.ActiveEdit!.Enabled} conditions={string.Join(',', demo.Snapshot().Automation.ActiveEdit!.Conditions)} action={demo.Snapshot().Automation.ActiveEdit!.Action} valid={demo.Snapshot().Automation.ActiveEdit!.Diagnostics.Length == 0}");
+    demo.ExecuteNow(new ApplyAutomationRuleEditCommand(demo.Tick));
+    demo.Advance();
+    demo.ExecuteNow(new PerformDishActionCommand(demo.Tick, DishAction.Scrape, DishKind.Plate));
+    demo.ExecuteNow(new PerformDishActionCommand(demo.Tick, DishAction.Rack, DishKind.Plate));
+    demo.Advance();
+    demo.ExecuteNow(new ReplayAutomationIncidentCommand(demo.Tick));
+    Console.WriteLine($"automation-editor unsafe rule={demo.Snapshot().Automation.ActiveRule.Id} matched={demo.Snapshot().Automation.Incident.LastReplayWouldStart} incident={demo.Snapshot().Automation.Incident.Recorded}");
+    demo.ExecuteNow(new BeginAutomationRuleEditCommand(demo.Tick));
+    demo.ExecuteNow(new ToggleAutomationRuleConditionCommand(demo.Tick, AutomationObservable.PhysicalReady));
+    Console.WriteLine($"automation-editor refined conditions={string.Join(',', demo.Snapshot().Automation.ActiveEdit!.Conditions)} valid={demo.Snapshot().Automation.ActiveEdit!.Diagnostics.Length == 0}");
+    demo.ExecuteNow(new ApplyAutomationRuleEditCommand(demo.Tick));
+    demo.ExecuteNow(new ReplayAutomationIncidentCommand(demo.Tick));
+    var final = demo.Snapshot().Automation;
+    Console.WriteLine($"automation-editor safe rule={final.ActiveRule.Id} matched={final.Incident.LastReplayWouldStart} policy={final.Policy} trace={final.RuleTrace.Count}");
+    foreach (var predicate in final.RuleTrace[^1].Evaluation.Predicates)
+        Console.WriteLine($"  predicate path={predicate.Path} expression={predicate.Expression} result={predicate.Result}");
+    return;
+}
+
+if (args.Contains("--automation-compare-demo", StringComparer.OrdinalIgnoreCase))
+{
+    var scenario = DishStationFirstHoursContent.ScenarioConfiguration with
+    {
+        InitialDirty = new(6, 2, 0),
+        InitialAvailable = new(0, 0, 0),
+        ArrivalIntervalTicks = 1000,
+        WasherCycleTicks = 2,
+        DemandIntervalTicks = 2,
+        StickyReadyFaultAfterAutomatedStarts = 1,
+        StickyReadyFaultPermillePerStart = 0,
+        InitialAutomationPolicy = WasherAutomationPolicy.Off,
+        InitialNewHireEnabled = false,
+    };
+    var demo = new DishStationWorld(42, scenario);
+    demo.ExecuteNow(new BeginAutomationRuleEditCommand(demo.Tick));
+    demo.ExecuteNow(new SetAutomationRuleEnabledCommand(demo.Tick, true));
+    demo.ExecuteNow(new ApplyAutomationRuleEditCommand(demo.Tick));
+    demo.ExecuteNow(new SaveAutomationRulePresetCommand(demo.Tick, AutomationPresetSlot.Baseline));
+    demo.ExecuteNow(new BeginAutomationRuleEditCommand(demo.Tick));
+    demo.ExecuteNow(new ToggleAutomationRuleConditionCommand(demo.Tick, AutomationObservable.PhysicalReady));
+    demo.ExecuteNow(new ApplyAutomationRuleEditCommand(demo.Tick));
+    demo.ExecuteNow(new SaveAutomationRulePresetCommand(demo.Tick, AutomationPresetSlot.Variant));
+    demo.ExecuteNow(new RunAutomationRuleComparisonCommand(demo.Tick, 16));
+    var demoComparison = demo.Snapshot().Automation.Comparison.LatestResult!;
+    Console.WriteLine($"automation-compare seed={demoComparison.Baseline.Seed} horizon={demoComparison.Baseline.HorizonTicks} sameScenario={demoComparison.Baseline.Scenario == demoComparison.Variant.Scenario} verdict={demoComparison.Verdict}");
+    Console.WriteLine($"  baseline completed={demoComparison.Baseline.Metrics.Completed} shortages={demoComparison.Baseline.Metrics.ServiceShortages} starts={demoComparison.Baseline.Metrics.AutomatedStarts} incidents={demoComparison.Baseline.Metrics.UnsafeIncidents} prevented={demoComparison.Baseline.Metrics.PreventedUnsafeStarts} matched={demoComparison.Baseline.FirstReadinessDivergence!.Evaluation.ConditionMatched}");
+    Console.WriteLine($"  variant  completed={demoComparison.Variant.Metrics.Completed} shortages={demoComparison.Variant.Metrics.ServiceShortages} starts={demoComparison.Variant.Metrics.AutomatedStarts} incidents={demoComparison.Variant.Metrics.UnsafeIncidents} prevented={demoComparison.Variant.Metrics.PreventedUnsafeStarts} matched={demoComparison.Variant.FirstReadinessDivergence!.Evaluation.ConditionMatched}");
+    foreach (var predicate in demoComparison.Variant.FirstReadinessDivergence.Evaluation.Predicates)
+        Console.WriteLine($"  variant-predicate path={predicate.Path} expression={predicate.Expression} result={predicate.Result}");
+    return;
+}
+
+if (args.Contains("--economy-compare-demo", StringComparer.OrdinalIgnoreCase))
+{
+    var seedIndex = Array.FindIndex(args, argument => string.Equals(argument, "--seed", StringComparison.OrdinalIgnoreCase));
+    var seed = seedIndex >= 0 && seedIndex + 1 < args.Length && int.TryParse(args[seedIndex + 1], out var parsedSeed)
+        ? parsedSeed
+        : 42;
+    var economyComparison = DishStationEconomyComparison.Run(seed, DishStationFirstHoursContent.ScenarioConfiguration);
+    Console.WriteLine($"economy-compare seed={economyComparison.LinearStation.Seed} horizon={economyComparison.LinearStation.HorizonTicks} sameSeed={economyComparison.SameSeed} sameScenario={economyComparison.Scenario == DishStationFirstHoursContent.ScenarioConfiguration} differentProfile={economyComparison.DifferentProfile}");
+    PrintEconomyChoice(economyComparison.LinearStation);
+    PrintEconomyChoice(economyComparison.FlowCell);
+    return;
+}
+
+var options = HeadlessOptions.Parse(args, DishStationFirstHoursContent.ScenarioConfiguration);
 if (options.ShowHelp)
 {
     Console.WriteLine(HeadlessOptions.HelpText);
@@ -21,32 +237,36 @@ var world = new DishStationWorld(options.Seed, options.Scenario);
 world.ExecuteNow(new CompleteIntroCommand(world.Tick, GuidanceMode.Contextual));
 
 if (options.ScriptedDemo)
+    DishStationFirstShiftReferenceRun.Schedule(world);
+
+if (options.CaptureDemo)
 {
-    world.Schedule(new PerformDishActionCommand(new(1), DishAction.Scrape, DishKind.Plate));
-    world.Schedule(new PerformDishActionCommand(new(2), DishAction.Rack, DishKind.Plate));
-    world.Schedule(new PerformDishActionCommand(new(3), DishAction.StartWasher, DishKind.Plate));
-    world.Schedule(new PerformDishActionCommand(new(24), DishAction.Unload, DishKind.Plate));
-    world.Schedule(new PerformDishActionCommand(new(25), DishAction.DryAndRestock, DishKind.Plate));
-    world.Schedule(new SetRushCommand(new(26), true));
-    world.Schedule(new InspectProcessCommand(new(31)));
-    world.Schedule(new ConfirmBottleneckCommand(new(32), DishState.Dirty));
-    world.Schedule(new ConfigureDishStationLayoutCommand(new(33), DishStationLayout.UShapedCell));
-    world.Schedule(new PerformDishActionCommand(new(33), DishAction.Scrape, DishKind.Glass));
-    world.Schedule(new PerformDishActionCommand(new(34), DishAction.Rack, DishKind.Glass));
-    world.Schedule(new PerformDishActionCommand(new(35), DishAction.StartWasher, DishKind.Glass));
-    world.Schedule(new PerformDishActionCommand(new(56), DishAction.Unload, DishKind.Glass));
-    world.Schedule(new PerformDishActionCommand(new(57), DishAction.DryAndRestock, DishKind.Glass));
-    world.Schedule(new SetNewHireEnabledCommand(new(61), true));
-    world.Schedule(new TrainNewHireCommand(new(62), DishProcessSpecification.HappyPath));
-    world.Schedule(new TrainNewHireCommand(new(76), DishProcessSpecification.RushAware));
-    world.Schedule(new TrainNewHireCommand(new(158), DishProcessSpecification.FullyDocumented));
-    world.Schedule(new ConfigureWasherAutomationCommand(new(200), WasherAutomationPolicy.ReportedReadyOnly));
-    world.Schedule(new InspectAutomationIncidentCommand(new(241)));
-    world.Schedule(new ReplayAutomationIncidentCommand(new(242)));
-    world.Schedule(new ConfigureWasherAutomationCommand(new(243), WasherAutomationPolicy.CorroboratedReady));
-    world.Schedule(new ReplayAutomationIncidentCommand(new(244)));
-    world.Schedule(new ConfigureDishSupplyCommand(new(245), DishState.Available, DishKind.Glass, 3));
-    world.Schedule(new StartShiftTrialCommand(new(245)));
+    world.Schedule(new StartProcessCaptureCommand(new(1), "Restore a plate"));
+    world.Schedule(new PerformDishActionCommand(new(2), DishAction.Scrape, DishKind.Plate));
+    world.Schedule(new PerformDishActionCommand(new(3), DishAction.Rack, DishKind.Plate));
+    world.Schedule(new PerformDishActionCommand(new(4), DishAction.StartWasher, DishKind.Plate));
+    var unloadAt = 5L + options.Scenario.WasherCycleTicks;
+    world.Schedule(new PerformDishActionCommand(new(unloadAt), DishAction.Unload, DishKind.Plate));
+    world.Schedule(new PerformDishActionCommand(new(unloadAt + 1), DishAction.DryAndRestock, DishKind.Plate));
+    world.Schedule(new CompleteProcessCaptureCommand(new(unloadAt + 2)));
+    if (options.ProcessEditorDemo)
+    {
+        var editAt = unloadAt + 3;
+        world.Schedule(new BeginProcessEditCommand(new(editAt), new(1)));
+        world.Schedule(new MoveProcessStepCommand(new(editAt + 1), new(2), 1));
+        world.Schedule(new ApplyProcessEditCommand(new(editAt + 2)));
+        world.Schedule(new MoveProcessStepCommand(new(editAt + 3), new(2), -1));
+        for (var step = 1; step <= 5; step++)
+            world.Schedule(new AssignProcessStepCommand(new(editAt + 3 + step), new(step), new(1)));
+        world.Schedule(new SetProcessRoutingPolicyCommand(new(editAt + 9), ProcessRoutingPolicy.GlassesFirst));
+        world.Schedule(new ApplyProcessEditCommand(new(editAt + 10)));
+        world.Schedule(new ConfigureDishSupplyCommand(new(editAt + 12), DishState.Dirty, DishKind.Plate, 1));
+        world.Schedule(new ConfigureDishSupplyCommand(new(editAt + 12), DishState.Dirty, DishKind.Glass, 1));
+        world.Schedule(new ConfigureDishSupplyCommand(new(editAt + 12), DishState.Available, DishKind.Plate, 0));
+        world.Schedule(new ConfigureDishSupplyCommand(new(editAt + 12), DishState.Available, DishKind.Glass, 0));
+        world.Schedule(new SetNewHireEnabledCommand(new(editAt + 12), true));
+        world.Schedule(new SetRushCommand(new(editAt + 12), true));
+    }
 }
 
 if (options.SandboxDemo)
@@ -64,6 +284,47 @@ for (var i = 0; i < options.Ticks; i++)
 }
 
 var snapshot = world.Snapshot();
+if (options.NarrativeDemo)
+{
+    var narrative = DishStationFirstHoursContent.Narrative;
+    Console.WriteLine($"chapter title={narrative.Chapter.ChapterTitle}");
+    for (var index = 0; index < narrative.Chapter.Briefing.Length; index++)
+        Console.WriteLine($"briefing page={index + 1} title={narrative.Chapter.Briefing[index].Title} body={narrative.Chapter.Briefing[index].Body}");
+    foreach (var quest in narrative.Quests)
+    {
+        var people = string.Join('|', quest.Participants.Select(participant => DishStationFirstHoursContent.Character(participant).DisplayName));
+        Console.WriteLine($"quest sequence={quest.Sequence} title={quest.Title} people={people} situation={quest.Situation} discovery={quest.Discovery}");
+    }
+    var dialogue = new CharacterDialogueRouter(DishStationFirstHoursContent.Catalog);
+    foreach (var narrativeEvent in snapshot.NarrativeEvents)
+        if (dialogue.Resolve(narrativeEvent) is { } bark)
+            Console.WriteLine($"character-beat t={bark.Tick.Value} speaker={DishStationFirstHoursContent.Character(bark.Speaker).DisplayName} line={bark.Line}");
+    Console.WriteLine($"debrief summary={narrative.Chapter.DebriefSummary}");
+    for (var index = 0; index < narrative.Chapter.DebriefQuestions.Length; index++)
+        Console.WriteLine($"debrief question={index + 1} text={narrative.Chapter.DebriefQuestions[index]}");
+    var developerKinds = new HashSet<RecordedCommandKind>
+    {
+        RecordedCommandKind.AddDirtyDishes,
+        RecordedCommandKind.ConfigureDishSupply,
+        RecordedCommandKind.ResetDishStation,
+        RecordedCommandKind.InjectStickyReadyFault,
+        RecordedCommandKind.ConfigureWasherAutomation,
+    };
+    var developerCommands = world.CreateReplaySave().CommandInvocations.Count(invocation => developerKinds.Contains(invocation.Command.CommandKind));
+    Console.WriteLine($"completion tick={snapshot.ShiftReport.CompletedAtTick} quests={snapshot.Progression.Quests.Count(quest => quest.Complete)}/{snapshot.Progression.Quests.Count} shift={snapshot.ShiftTrial.Status} checks={snapshot.ShiftTrial.SuccessfulDemandChecks}/{snapshot.ShiftTrial.TargetDemandChecks} developerCommands={developerCommands}");
+    return;
+}
+if (options.DialogueDemo)
+{
+    var dialogue = new CharacterDialogueRouter(DishStationFirstHoursContent.Catalog);
+    foreach (var narrativeEvent in snapshot.NarrativeEvents)
+    {
+        if (dialogue.Resolve(narrativeEvent) is not { } bark) continue;
+        var speaker = DishStationFirstHoursContent.Character(bark.Speaker);
+        Console.WriteLine($"dialogue t={bark.Tick.Value} event={bark.Trigger} quest={bark.Quest} priority={bark.Priority} speaker={bark.Speaker}:{speaker.DisplayName} bark={bark.Id} line={bark.Line}");
+    }
+    return;
+}
 Console.WriteLine($"Dish station | episode={DishStationEpisodeDefinition.FirstPlayable.Id} seed={options.Seed} tick={snapshot.Tick.Value}");
 Console.WriteLine($"scenario arrivals={options.Scenario.ArrivalIntervalTicks} glassEvery={options.Scenario.GlassEveryArrivals} rackCapacity={options.Scenario.RackCapacity} washerCycle={options.Scenario.WasherCycleTicks} worker={options.Scenario.WorkerActionIntervalTicks}/{options.Scenario.FlowCellWorkerActionIntervalTicks} demand={options.Scenario.DemandKind}/{options.Scenario.DemandIntervalTicks} stickyAfter={options.Scenario.StickyReadyFaultAfterAutomatedStarts} faultPermille={options.Scenario.StickyReadyFaultPermillePerStart}");
 foreach (var state in Enum.GetValues<DishState>())
@@ -77,12 +338,24 @@ Console.WriteLine($"completed={snapshot.Completed} shortages={snapshot.ServiceSh
 Console.WriteLine($"career intro={snapshot.Onboarding.Complete}/{snapshot.Onboarding.GuidanceMode} level={snapshot.Progression.Level} xp={snapshot.Progression.Experience} activeQuest={snapshot.Progression.ActiveQuest?.ToString() ?? "complete"} quests={snapshot.Progression.Quests.Count(quest => quest.Complete)}/{snapshot.Progression.Quests.Count}");
 Console.WriteLine($"shiftTrial status={snapshot.ShiftTrial.Status} checks={snapshot.ShiftTrial.SuccessfulDemandChecks}/{snapshot.ShiftTrial.TargetDemandChecks} attempts={snapshot.ShiftTrial.Attempts} start={snapshot.ShiftTrial.StartedAtTick} end={snapshot.ShiftTrial.CompletedAtTick}");
 Console.WriteLine($"shiftReport available={snapshot.ShiftReport.Available} tick={snapshot.ShiftReport.CompletedAtTick} completed={snapshot.ShiftReport.CompletedDishes} shortages={snapshot.ShiftReport.ServiceShortages} route={snapshot.ShiftReport.BaselineRouteSteps}->{snapshot.ShiftReport.ValidatedRouteSteps}/{snapshot.ShiftReport.FinalRouteSteps} worker={snapshot.ShiftReport.WorkerActions} rework={snapshot.ShiftReport.TrayReworkIncidents} automation={snapshot.ShiftReport.AutomatedStarts}/{snapshot.ShiftReport.AutomationIncidents}/{snapshot.ShiftReport.PreventedUnsafeStarts}");
+Console.WriteLine($"economy value={snapshot.Economy.ThroughputValue} labor={snapshot.Economy.LaborTicks}/{snapshot.Economy.LaborCost} staffing={snapshot.Economy.StaffedTicks}/{snapshot.Economy.StaffingCost} waste={snapshot.Economy.ReworkIncidents}/{snapshot.Economy.WasteCost} shortageDowntime={snapshot.Economy.ServiceShortages}/{snapshot.Economy.ShortageDowntimeCost} incidentDowntime={snapshot.Economy.AutomationIncidents}/{snapshot.Economy.IncidentDowntimeCost} investment={snapshot.Economy.FlowCellInvested}/{snapshot.Economy.InvestmentCost} total={snapshot.Economy.TotalCost} net={snapshot.Economy.NetValue}");
+if (snapshot.ShiftReport.Available)
+    Console.WriteLine($"scorecard value={snapshot.ShiftReport.Economy.ThroughputValue} total={snapshot.ShiftReport.Economy.TotalCost} net={snapshot.ShiftReport.Economy.NetValue}");
 foreach (var quest in snapshot.Progression.Quests)
     Console.WriteLine($"  quest={quest.Id,-22} complete={quest.Complete,-5} progress={quest.Percent,3}% start={quest.StartedAtTick,4} end={quest.CompletedAtTick,4} activeTicks={quest.ElapsedTicks,4}");
 Console.WriteLine($"newHire enabled={snapshot.NewHire.Enabled} flowDocumented={snapshot.NewHire.Specification.FlowDocumented} glassPriority={snapshot.NewHire.Specification.RushGlassPriorityDocumented} trayKnowledge={snapshot.NewHire.Specification.RareTrayHandlingDocumented} actions={snapshot.NewHire.ActionsCompleted} plateActions={snapshot.NewHire.PlateActions} glassActions={snapshot.NewHire.GlassActions} trayActions={snapshot.NewHire.TrayActions} trayRework={snapshot.NewHire.TrayReworkIncidents}");
 Console.WriteLine($"layout={snapshot.Layout.Layout} estimatedRoute={snapshot.Layout.EstimatedRouteSteps} sandboxWalked={snapshot.Layout.SandboxMovementSteps} playerCell={snapshot.Layout.PlayerCell.X},{snapshot.Layout.PlayerCell.Y} baselineRoute={snapshot.Layout.BaselineRouteSteps} validatedRoute={snapshot.Layout.ValidatedRouteSteps} playerSteps={snapshot.Layout.PlayerTravelSteps} newHireSteps={snapshot.Layout.NewHireTravelSteps}");
 Console.WriteLine($"placements scrape={Cell(snapshot.Layout.Placements.Scrape)} rack={Cell(snapshot.Layout.Placements.Rack)} washer={Cell(snapshot.Layout.Placements.Washer)} unload={Cell(snapshot.Layout.Placements.Unload)} dry={Cell(snapshot.Layout.Placements.DryRestock)} service={Cell(snapshot.Layout.Placements.Service)}");
 Console.WriteLine($"automation enabled={snapshot.Automation.Policy.Enabled} interlock={snapshot.Automation.Policy.RequirePhysicalReady} reportedReady={snapshot.Automation.ReportedReady} physicalReady={snapshot.Automation.PhysicalReady} starts={snapshot.Automation.AutomatedStarts} incidents={snapshot.Automation.Incidents} prevented={snapshot.Automation.PreventedUnsafeStarts}");
+Console.WriteLine($"automationRule id={snapshot.Automation.ActiveRule.Id} enabled={snapshot.Automation.ActiveRule.Enabled} draftOpen={snapshot.Automation.ActiveEdit is not null} evaluations={snapshot.Automation.RuleTrace.Count}");
+if (snapshot.Automation.Comparison.LatestResult is { } comparison)
+    Console.WriteLine($"automationCompare verdict={comparison.Verdict} seed={comparison.Baseline.Seed} horizon={comparison.Baseline.HorizonTicks} completed={comparison.Baseline.Metrics.Completed}->{comparison.Variant.Metrics.Completed} shortages={comparison.Baseline.Metrics.ServiceShortages}->{comparison.Variant.Metrics.ServiceShortages} incidents={comparison.Baseline.Metrics.UnsafeIncidents}->{comparison.Variant.Metrics.UnsafeIncidents} prevented={comparison.Baseline.Metrics.PreventedUnsafeStarts}->{comparison.Variant.Metrics.PreventedUnsafeStarts}");
+foreach (var artifact in snapshot.ProcessCapture.Artifacts)
+{
+    Console.WriteLine($"process id={artifact.Id.Value} owner={artifact.Owner.Value} name={artifact.Name} baseline=v{artifact.Baseline.Version} current=v{artifact.Current.Version} applied={snapshot.ProcessCapture.AppliedArtifactId?.Value.ToString() ?? "no"} routing={artifact.Current.RoutingPolicy} source={artifact.Current.Provenance.Source} seed={artifact.Current.Provenance.WorldSeed} started={artifact.Current.Provenance.StartedAt.Value} completed={artifact.Current.Provenance.CompletedAt.Value} steps={artifact.Current.Steps.Length}");
+    foreach (var step in artifact.Current.Steps)
+        Console.WriteLine($"  step={step.Sequence} id={step.Id.Value} t={step.ObservedAt.Value} observedActor={step.Actor.Value} assignedActor={step.AssignedActor.Value} workstation={step.Workstation} action={step.Action} item={step.ItemKind} transition={step.InputState}->{step.OutputState}");
+}
 Console.WriteLine($"incident recorded={snapshot.Automation.Incident.Recorded} at={snapshot.Automation.Incident.OccurredAt.Value} replays={snapshot.Automation.Incident.ReplayCount} lastWouldStart={snapshot.Automation.Incident.LastReplayWouldStart} regression={snapshot.Automation.Incident.RegressionPassed}");
 Console.WriteLine("Automation trace:");
 foreach (var entry in snapshot.Automation.Trace)
@@ -97,11 +370,18 @@ foreach (var notification in world.Notifications)
 
 static string Cell(FloorCell cell) => $"{cell.X},{cell.Y}";
 
+static void PrintEconomyChoice(DishStationEconomyChoiceResult choice) =>
+    Console.WriteLine($"  choice={choice.Choice} viable={choice.Viable} layout={choice.Layout} completed={choice.CompletedDishes} shortages={choice.ServiceShortages} workerActions={choice.Economy.WorkerActions} workerTravel={choice.WorkerTravelSteps} value={choice.Economy.ThroughputValue} labor={choice.Economy.LaborCost} staffing={choice.Economy.StaffingCost} waste={choice.Economy.WasteCost} downtime={choice.Economy.DowntimeCost} investment={choice.Economy.InvestmentCost} total={choice.Economy.TotalCost} net={choice.Economy.NetValue}");
+
 internal sealed record HeadlessOptions(
     int Seed,
     int Ticks,
     bool ScriptedDemo,
     bool SandboxDemo,
+    bool CaptureDemo,
+    bool ProcessEditorDemo,
+    bool DialogueDemo,
+    bool NarrativeDemo,
     bool ShowHelp,
     int BenchmarkActors,
     int BenchmarkTicks,
@@ -113,8 +393,21 @@ internal sealed record HeadlessOptions(
           --seed N                      deterministic seed (default 42)
           --empty                       do not schedule the tutorial demo
           --sandbox-demo                place a compact custom floor and move the player headlessly
+          --capture-demo                capture one manual plate workflow as a versioned process artifact
+          --process-editor-demo         capture, validate, edit, apply, and rerun a glass-first process
           --benchmark-actors N          run the synthetic actor benchmark instead
           --benchmark-ticks N           benchmark ticks (default 100)
+          --compile-content PATH        validate/normalize a schema-v1 YAML bundle and print its manifest
+          --character-roster-demo       print the named first-shift cast and quest participant mappings
+          --dialogue-demo               run the first shift and print resolved contextual character barks
+          --narrative-demo              print the complete authored first-shift narrative and outcome proof
+          --expand-template PATH        expand/compile a template-v1 YAML file and print provenance hashes
+          --automation-ir-demo          evaluate and print reported/safe washer-rule traces headlessly
+          --automation-editor-demo      create, apply, trace, refine, and replay one player washer rule
+          --automation-compare-demo     compare baseline/variant rules in identical authoritative trials
+          --economy-compare-demo        compare staffed linear/flow-cell choices over the same 120-tick shift
+          --named-seed NAME             required by templates with declared variable fields
+          --parameter NAME=VALUE        supply a template parameter; repeat for additional parameters
           --initial-plates N            initial dirty plates
           --initial-glasses N           initial dirty glasses
           --initial-trays N             initial dirty trays
@@ -140,13 +433,18 @@ internal sealed record HeadlessOptions(
         Use --empty when changing timings for a free-running scenario; the scripted demo is timed for defaults.
         """;
 
-    public static HeadlessOptions Parse(string[] args)
+    public static HeadlessOptions Parse(string[] args, DishStationScenarioConfiguration authoredScenario)
     {
+        ArgumentNullException.ThrowIfNull(authoredScenario);
         var seed = ReadInt(args, "--seed", 42);
         var ticks = ReadInt(args, "--ticks", 300);
         var sandboxDemo = args.Contains("--sandbox-demo", StringComparer.OrdinalIgnoreCase);
-        var demo = !sandboxDemo && !args.Contains("--empty", StringComparer.OrdinalIgnoreCase);
-        var knowledge = ReadString(args, "--knowledge", "none").ToLowerInvariant() switch
+        var processEditorDemo = args.Contains("--process-editor-demo", StringComparer.OrdinalIgnoreCase);
+        var captureDemo = processEditorDemo || args.Contains("--capture-demo", StringComparer.OrdinalIgnoreCase);
+        var dialogueDemo = args.Contains("--dialogue-demo", StringComparer.OrdinalIgnoreCase);
+        var narrativeDemo = args.Contains("--narrative-demo", StringComparer.OrdinalIgnoreCase);
+        var demo = !sandboxDemo && !captureDemo && !args.Contains("--empty", StringComparer.OrdinalIgnoreCase);
+        var knowledge = ReadString(args, "--knowledge", KnowledgeToken(authoredScenario.InitialNewHireSpecification)).ToLowerInvariant() switch
         {
             "happy" => DishProcessSpecification.HappyPath,
             "rush" => DishProcessSpecification.RushAware,
@@ -154,55 +452,82 @@ internal sealed record HeadlessOptions(
             "none" => default,
             var value => throw new ArgumentException($"Unknown knowledge profile '{value}'."),
         };
-        var automation = ReadString(args, "--automation", "off").ToLowerInvariant() switch
+        var automation = ReadString(args, "--automation", AutomationToken(authoredScenario.InitialAutomationPolicy)).ToLowerInvariant() switch
         {
             "off" => WasherAutomationPolicy.Off,
             "reported" => WasherAutomationPolicy.ReportedReadyOnly,
             "safe" => WasherAutomationPolicy.CorroboratedReady,
             var value => throw new ArgumentException($"Unknown automation policy '{value}'."),
         };
-        var layout = ReadString(args, "--layout", "linear").ToLowerInvariant() switch
+        var layout = ReadString(args, "--layout", LayoutToken(authoredScenario.InitialLayout)).ToLowerInvariant() switch
         {
             "linear" => DishStationLayout.Linear,
             "cell" => DishStationLayout.UShapedCell,
             var value => throw new ArgumentException($"Unknown layout '{value}'."),
         };
-        var scenario = new DishStationScenarioConfiguration
+        var scenario = (authoredScenario with
         {
             InitialDirty = new(
-                ReadInt(args, "--initial-plates", 6),
-                ReadInt(args, "--initial-glasses", 2),
-                ReadInt(args, "--initial-trays", 0)),
+                ReadInt(args, "--initial-plates", authoredScenario.InitialDirty.Plates),
+                ReadInt(args, "--initial-glasses", authoredScenario.InitialDirty.Glasses),
+                ReadInt(args, "--initial-trays", authoredScenario.InitialDirty.Trays)),
             InitialAvailable = new(
-                ReadInt(args, "--clean-plates", 0),
-                ReadInt(args, "--clean-glasses", 0),
-                ReadInt(args, "--clean-trays", 0)),
-            ArrivalIntervalTicks = ReadInt(args, "--arrival-interval", 30),
-            GlassEveryArrivals = ReadInt(args, "--glass-every", 3),
-            RackCapacity = ReadInt(args, "--rack-capacity", 12),
-            WasherCycleTicks = ReadInt(args, "--washer-cycle", 20),
-            WorkerActionIntervalTicks = ReadInt(args, "--worker-interval", 5),
-            FlowCellWorkerActionIntervalTicks = ReadInt(args, "--flow-worker-interval", 4),
-            StickyReadyFaultAfterAutomatedStarts = ReadInt(args, "--sticky-after", 2),
-            StickyReadyFaultPermillePerStart = ReadInt(args, "--fault-permille", 0),
-            DemandKind = ReadEnum(args, "--demand-kind", DishKind.Glass),
-            DemandIntervalTicks = ReadInt(args, "--demand-interval", 15),
-            InitialRushEnabled = args.Contains("--rush", StringComparer.OrdinalIgnoreCase),
-            InitialNewHireEnabled = args.Contains("--worker-enabled", StringComparer.OrdinalIgnoreCase),
+                ReadInt(args, "--clean-plates", authoredScenario.InitialAvailable.Plates),
+                ReadInt(args, "--clean-glasses", authoredScenario.InitialAvailable.Glasses),
+                ReadInt(args, "--clean-trays", authoredScenario.InitialAvailable.Trays)),
+            ArrivalIntervalTicks = ReadInt(args, "--arrival-interval", authoredScenario.ArrivalIntervalTicks),
+            GlassEveryArrivals = ReadInt(args, "--glass-every", authoredScenario.GlassEveryArrivals),
+            RackCapacity = ReadInt(args, "--rack-capacity", authoredScenario.RackCapacity),
+            WasherCycleTicks = ReadInt(args, "--washer-cycle", authoredScenario.WasherCycleTicks),
+            WorkerActionIntervalTicks = ReadInt(args, "--worker-interval", authoredScenario.WorkerActionIntervalTicks),
+            FlowCellWorkerActionIntervalTicks = ReadInt(args, "--flow-worker-interval", authoredScenario.FlowCellWorkerActionIntervalTicks),
+            StickyReadyFaultAfterAutomatedStarts = ReadInt(args, "--sticky-after", authoredScenario.StickyReadyFaultAfterAutomatedStarts),
+            StickyReadyFaultPermillePerStart = ReadInt(args, "--fault-permille", authoredScenario.StickyReadyFaultPermillePerStart),
+            DemandKind = ReadEnum(args, "--demand-kind", authoredScenario.DemandKind),
+            DemandIntervalTicks = ReadInt(args, "--demand-interval", authoredScenario.DemandIntervalTicks),
+            InitialRushEnabled = authoredScenario.InitialRushEnabled || args.Contains("--rush", StringComparer.OrdinalIgnoreCase),
+            InitialNewHireEnabled = authoredScenario.InitialNewHireEnabled || args.Contains("--worker-enabled", StringComparer.OrdinalIgnoreCase),
             InitialNewHireSpecification = knowledge,
             InitialAutomationPolicy = automation,
             InitialLayout = layout,
-        }.Validate();
+        }).Validate();
         return new(
             seed,
             ticks,
             demo,
             sandboxDemo,
+            captureDemo,
+            processEditorDemo,
+            dialogueDemo,
+            narrativeDemo,
             args.Contains("--help", StringComparer.OrdinalIgnoreCase) || args.Contains("-h", StringComparer.OrdinalIgnoreCase),
             ReadInt(args, "--benchmark-actors", 0),
             ReadInt(args, "--benchmark-ticks", 100),
             scenario);
     }
+
+    private static string KnowledgeToken(DishProcessSpecification value) => value switch
+    {
+        { FlowDocumented: false, RushGlassPriorityDocumented: false, RareTrayHandlingDocumented: false } => "none",
+        { FlowDocumented: true, RushGlassPriorityDocumented: false, RareTrayHandlingDocumented: false } => "happy",
+        { FlowDocumented: true, RushGlassPriorityDocumented: true, RareTrayHandlingDocumented: false } => "rush",
+        { FlowDocumented: true, RushGlassPriorityDocumented: true, RareTrayHandlingDocumented: true } => "full",
+        _ => throw new ArgumentException("Authored new-hire knowledge does not map to a supported CLI profile."),
+    };
+
+    private static string AutomationToken(WasherAutomationPolicy value) => value switch
+    {
+        { Enabled: false } => "off",
+        { Enabled: true, RequirePhysicalReady: false } => "reported",
+        { Enabled: true, RequirePhysicalReady: true } => "safe",
+    };
+
+    private static string LayoutToken(DishStationLayout value) => value switch
+    {
+        DishStationLayout.Linear => "linear",
+        DishStationLayout.UShapedCell => "cell",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+    };
 
     private static int ReadInt(string[] args, string name, int fallback)
     {

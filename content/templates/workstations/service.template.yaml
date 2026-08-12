@@ -1,0 +1,31 @@
+template_schema_version: 1
+template_id: template.workstation.restaurant.service-demand
+template_version: 1
+
+parameters:
+  workstation-slug: token
+  demand-kind: token
+  request-interval-ticks: positive_integer
+
+content: |
+  schema_version: 1
+  industries:
+    - id: industry.restaurant
+      display_name: Restaurant
+  items:
+    - id: item.restaurant.dish
+      industry: industry.restaurant
+      display_name: Dish
+      states: [available, dirty]
+  workstations:
+    - id: workstation.restaurant.{{parameter:workstation-slug}}
+      industry: industry.restaurant
+      display_name: Service Demand Surface
+      accepted_items: [item.restaurant.dish]
+      input_state: available
+      output_state: dirty
+      presentation: presentation.workstation.service.standard
+      presentation_fallback: presentation.fallback.workstation
+      service:
+        demand_kind: {{parameter:demand-kind}}
+        request_interval_ticks: {{parameter:request-interval-ticks}}

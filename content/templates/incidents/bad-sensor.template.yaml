@@ -1,0 +1,27 @@
+template_schema_version: 1
+template_id: template.incident.restaurant.bad-sensor
+template_version: 1
+parameters:
+  incident-slug: token
+  duration-ticks: positive_integer
+variants:
+  trigger-tick:
+    kind: non_negative_integer
+    options: [1, 2, 3]
+content: |
+  schema_version: 1
+  industries:
+    - id: industry.restaurant
+      display_name: Restaurant
+  incidents:
+    - id: incident.restaurant.{{parameter:incident-slug}}
+      industry: industry.restaurant
+      display_name: Sticky Ready Sensor
+      trigger_at_tick: {{variant:trigger-tick}}
+      scope: dish-station
+      observable: The reported-ready signal remains true regardless of physical readiness.
+      evidence: Reported and physical readiness can be compared in the automation trace.
+      recovery: The reported-ready signal follows physical readiness again.
+      bad_sensor:
+        duration_ticks: {{parameter:duration-ticks}}
+        signal: reported-ready-stuck-true

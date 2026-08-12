@@ -21,6 +21,10 @@ public readonly record struct AutomationTraceEntry(
     bool PhysicalReady,
     WasherAutomationPolicy Policy);
 
+public sealed record AutomationRuleTraceEntry(
+    SimulationTick Tick,
+    AutomationRuleEvaluationTrace Evaluation);
+
 public readonly record struct AutomationIncidentSnapshot(
     bool Recorded,
     SimulationTick OccurredAt,

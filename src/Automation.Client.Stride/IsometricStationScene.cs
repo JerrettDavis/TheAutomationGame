@@ -5,17 +5,24 @@ using Stride.Graphics;
 
 namespace Automation.Client.Stride;
 
-internal readonly record struct IsometricCamera(float OffsetX, float OffsetY, float Zoom)
+public readonly record struct IsometricCamera(float OffsetX, float OffsetY, float Zoom)
 {
+    public const float MinimumOffsetX = -220;
+    public const float MaximumOffsetX = 220;
+    public const float MinimumOffsetY = -120;
+    public const float MaximumOffsetY = 120;
+    public const float MinimumZoom = 0.7f;
+    public const float MaximumZoom = 1.4f;
+
     public static IsometricCamera Default => new(0, 0, 1);
 
     public IsometricCamera Pan(float x, float y) => this with
     {
-        OffsetX = Math.Clamp(OffsetX + x, -220, 220),
-        OffsetY = Math.Clamp(OffsetY + y, -120, 120),
+        OffsetX = Math.Clamp(OffsetX + x, MinimumOffsetX, MaximumOffsetX),
+        OffsetY = Math.Clamp(OffsetY + y, MinimumOffsetY, MaximumOffsetY),
     };
 
-    public IsometricCamera ZoomBy(float amount) => this with { Zoom = Math.Clamp(Zoom + amount, 0.7f, 1.4f) };
+    public IsometricCamera ZoomBy(float amount) => this with { Zoom = Math.Clamp(Zoom + amount, MinimumZoom, MaximumZoom) };
 }
 
 internal static class IsometricStationScene
@@ -56,12 +63,16 @@ internal static class IsometricStationScene
         SpriteBatch batch,
         Texture pixel,
         Texture diamond,
+        Texture? washerProjection,
+        PresentationCatalog presentationCatalog,
+        bool renderRoomGeometry,
         DishStationSnapshot snapshot,
         DishKind selectedKind,
         int selectedStation,
         bool showProcess,
         IsometricCamera camera,
-        Vector2 visualPlayerCell,
+        DishStationCharacterFrame characters,
+        bool reducedMotion,
         bool placementMode,
         DishStationFixture placementFixture,
         FloorCell previewCell,
@@ -70,7 +81,8 @@ internal static class IsometricStationScene
         Color hoverColor,
         float interactionPulse)
     {
-        DrawFloor(batch, pixel, diamond, camera);
+        if (renderRoomGeometry) DrawFloor(batch, pixel, diamond, camera);
+        else PixelFont.Draw(batch, pixel, "MODULAR DISH ROOM / AUTHORITATIVE PROJECTION", 42, 445, 1, new Color(145, 164, 166));
         if (showProcess) DrawFlow(batch, diamond, camera, snapshot.Layout.Placements);
 
         Span<int> drawOrder = stackalloc int[6] { 0, 1, 2, 3, 4, 5 };
@@ -88,17 +100,19 @@ internal static class IsometricStationScene
         }
         foreach (var fixtureIndex in drawOrder)
         {
-            if (fixtureIndex == 5) DrawService(batch, pixel, diamond, snapshot, camera, hoveredFixture, hoverColor, interactionPulse);
-            else DrawStation(batch, pixel, diamond, snapshot, selectedKind, fixtureIndex, selectedStation, showProcess, camera,
+            if (fixtureIndex == 5) DrawService(batch, pixel, diamond, snapshot, camera, hoveredFixture, hoverColor, interactionPulse, renderRoomGeometry);
+            else DrawStation(batch, pixel, diamond, washerProjection, presentationCatalog, snapshot, selectedKind, fixtureIndex, selectedStation, showProcess, camera,
+                renderRoomGeometry,
                 hoveredFixture, hoverColor, interactionPulse);
         }
         if (placementMode) DrawPlacementPreview(batch, pixel, diamond, placementFixture, previewCell, previewValid, camera);
-        DrawWorker(batch, pixel, diamond, snapshot.NewHire, snapshot.Layout.Placements, camera);
-        DrawPlayer(batch, pixel, diamond, visualPlayerCell, camera);
+        DrawWorker(batch, pixel, diamond, presentationCatalog, characters.Worker, camera, reducedMotion, snapshot.NewHire.Id);
+        DrawPlayer(batch, pixel, diamond, presentationCatalog, characters.Player, camera, reducedMotion);
         DrawLegend(batch, pixel, snapshot);
     }
 
-    public static DishStationFixture? HitTest(float screenX, float screenY, DishStationPlacements placements, IsometricCamera camera)
+    public static DishStationFixture? HitTest(float screenX, float screenY, DishStationPlacements placements, IsometricCamera camera,
+        PresentationCatalog? presentationCatalog = null, bool washerAssetAvailable = true)
     {
         Span<int> drawOrder = stackalloc int[6] { 0, 1, 2, 3, 4, 5 };
         for (var i = 1; i < drawOrder.Length; i++)
@@ -117,28 +131,35 @@ internal static class IsometricStationScene
         for (var order = drawOrder.Length - 1; order >= 0; order--)
         {
             var fixture = (DishStationFixture)drawOrder[order];
-            if (ContainsFixture(screenX, screenY, fixture, placements, camera)) return fixture;
+            if (ContainsFixture(screenX, screenY, fixture, placements, camera, presentationCatalog ?? PresentationCatalog.Default,
+                    washerAssetAvailable)) return fixture;
         }
         return null;
     }
 
-    internal static Vector2 FixtureCenter(DishStationFixture fixture, DishStationPlacements placements, IsometricCamera camera)
+    internal static Vector2 FixtureCenter(DishStationFixture fixture, DishStationPlacements placements, IsometricCamera camera,
+        PresentationCatalog? presentationCatalog = null, bool washerAssetAvailable = true)
     {
         var cell = placements.At(fixture);
         var point = Project(cell.X, cell.Y, camera);
-        var bodyHeight = (fixture == DishStationFixture.Service ? 38 : fixture == DishStationFixture.Washer ? 48 : 34) * camera.Zoom;
+        var catalog = presentationCatalog ?? PresentationCatalog.Default;
+        var washer = ResolveWasher(catalog, washerAssetAvailable);
+        var bodyHeight = (fixture == DishStationFixture.Service ? 38 : fixture == DishStationFixture.Washer ? washer.Height : 34) * camera.Zoom;
         return new Vector2(point.X, point.Y - bodyHeight);
     }
 
-    private static bool ContainsFixture(float x, float y, DishStationFixture fixture, DishStationPlacements placements, IsometricCamera camera)
+    private static bool ContainsFixture(float x, float y, DishStationFixture fixture, DishStationPlacements placements, IsometricCamera camera,
+        PresentationCatalog presentationCatalog, bool washerAssetAvailable)
     {
         var cell = placements.At(fixture);
         var point = Project(cell.X, cell.Y, camera);
         var scale = camera.Zoom;
         var service = fixture == DishStationFixture.Service;
-        var width = (service ? 100 : 76) * scale;
+        var washer = fixture == DishStationFixture.Washer;
+        var washerPresentation = ResolveWasher(presentationCatalog, washerAssetAvailable);
+        var width = (service ? 100 : washer ? washerPresentation.Width : 76) * scale;
         var topHeight = (service ? 38 : 34) * scale;
-        var bodyHeight = (service ? 38 : fixture == DishStationFixture.Washer ? 48 : 34) * scale;
+        var bodyHeight = (service ? 38 : washer ? washerPresentation.Height : 34) * scale;
         var topY = point.Y - bodyHeight;
         var inTop = MathF.Abs(x - point.X) / (width * 0.5f) + MathF.Abs(y - topY) / (topHeight * 0.5f) <= 1;
         var inBody = x >= point.X - width * 0.5f && x <= point.X + width * 0.5f && y >= topY && y <= point.Y;
@@ -188,17 +209,20 @@ internal static class IsometricStationScene
         }
     }
 
-    private static void DrawStation(SpriteBatch batch, Texture pixel, Texture diamond, DishStationSnapshot snapshot,
+    private static void DrawStation(SpriteBatch batch, Texture pixel, Texture diamond, Texture? washerProjection,
+        PresentationCatalog presentationCatalog, DishStationSnapshot snapshot,
         DishKind selectedKind, int index, int selectedStation, bool showProcess, IsometricCamera camera,
-        DishStationFixture? hoveredFixture, Color hoverColor, float interactionPulse)
+        bool renderRoomGeometry, DishStationFixture? hoveredFixture, Color hoverColor, float interactionPulse)
     {
         var station = Stations[index];
         var position = StationPosition(index, snapshot.Layout.Placements);
         var point = Project(position.X, position.Y, camera);
         var scale = camera.Zoom;
-        var width = 76 * scale;
+        var washerPresentation = presentationCatalog.Resolve(PresentationIds.Washer, PresentationIds.FallbackWorkstation);
+        var renderedWasher = washerProjection is null ? presentationCatalog.ResolveFallback(washerPresentation) : washerPresentation;
+        var width = (index == 2 ? renderedWasher.Width : 76) * scale;
         var topHeight = 34 * scale;
-        var bodyHeight = (index == 2 ? 48 : 34) * scale;
+        var bodyHeight = (index == 2 ? renderedWasher.Height : 34) * scale;
         var selected = index == selectedStation;
         var bottleneck = showProcess && snapshot.Bottleneck == station.QueueState;
         var hovered = hoveredFixture == (DishStationFixture)index;
@@ -206,10 +230,28 @@ internal static class IsometricStationScene
             DrawDiamond(batch, diamond, point.X, point.Y - bodyHeight, width + (10 + interactionPulse) * scale,
                 topHeight + (8 + interactionPulse * 0.5f) * scale, hoverColor);
 
-        DrawDiamond(batch, diamond, point.X + 5 * scale, point.Y + 8 * scale, width + 12 * scale, topHeight + 8 * scale, new Color(22, 29, 31, 190));
-        DrawRect(batch, pixel, point.X - width / 2, point.Y - bodyHeight, width, bodyHeight, Darken(station.Color));
-        DrawDiamond(batch, diamond, point.X, point.Y - bodyHeight, width, topHeight, selected ? Color.Yellow : bottleneck ? Color.OrangeRed : station.Color);
-        DrawDiamond(batch, diamond, point.X, point.Y - bodyHeight - 2 * scale, width - 8 * scale, topHeight - 5 * scale, station.Color);
+        if (renderRoomGeometry)
+        {
+            DrawDiamond(batch, diamond, point.X + 5 * scale, point.Y + 8 * scale, width + 12 * scale, topHeight + 8 * scale, new Color(22, 29, 31, 190));
+            if (index == 2 && washerProjection is not null)
+            {
+                batch.Draw(washerProjection, WasherAssetPresentation.Destination(point, scale, washerPresentation),
+                    WasherAssetPresentation.Tint(washerPresentation, selected, bottleneck), Color.Black);
+            }
+            else
+            {
+                var bodyColor = index == 2 ? renderedWasher.SecondaryColor : Darken(station.Color);
+                var topColor = index == 2 ? renderedWasher.PrimaryColor : station.Color;
+                DrawRect(batch, pixel, point.X - width / 2, point.Y - bodyHeight, width, bodyHeight, bodyColor);
+                DrawDiamond(batch, diamond, point.X, point.Y - bodyHeight, width, topHeight, selected ? Color.Yellow : bottleneck ? Color.OrangeRed : topColor);
+                DrawDiamond(batch, diamond, point.X, point.Y - bodyHeight - 2 * scale, width - 8 * scale, topHeight - 5 * scale, topColor);
+            }
+        }
+        if (selected || bottleneck)
+        {
+            DrawDiamond(batch, diamond, point.X, point.Y - bodyHeight, width + 8 * scale, topHeight + 6 * scale,
+                selected ? new Color(255, 220, 72, 150) : new Color(255, 96, 72, 150));
+        }
 
         var counts = snapshot.At(station.QueueState);
         if (index == 2)
@@ -218,7 +260,7 @@ internal static class IsometricStationScene
             counts = new DishCounts(counts.Plates + washing.Plates, counts.Glasses + washing.Glasses, counts.Trays + washing.Trays);
         }
 
-        DrawDishStack(batch, pixel, diamond, point.X - 21 * scale, point.Y - bodyHeight - 13 * scale, counts, scale);
+        DrawDishStack(batch, pixel, diamond, presentationCatalog, point.X - 21 * scale, point.Y - bodyHeight - 13 * scale, counts, scale);
         var labelX = point.X - 45 * scale;
         var labelY = point.Y + 12 * scale;
         DrawRect(batch, pixel, labelX - 3, labelY - 3, 94 * scale, showProcess ? 42 : 30, new Color(19, 27, 31, 220));
@@ -232,7 +274,7 @@ internal static class IsometricStationScene
     }
 
     private static void DrawService(SpriteBatch batch, Texture pixel, Texture diamond, DishStationSnapshot snapshot, IsometricCamera camera,
-        DishStationFixture? hoveredFixture, Color hoverColor, float interactionPulse)
+        DishStationFixture? hoveredFixture, Color hoverColor, float interactionPulse, bool renderRoomGeometry)
     {
         var serviceCell = snapshot.Layout.Placements.Service;
         var point = Project(serviceCell.X, serviceCell.Y, camera);
@@ -240,26 +282,28 @@ internal static class IsometricStationScene
         if (hoveredFixture == DishStationFixture.Service)
             DrawDiamond(batch, diamond, point.X, point.Y - 38 * scale, (110 + interactionPulse) * scale,
                 (46 + interactionPulse * 0.5f) * scale, hoverColor);
-        DrawRect(batch, pixel, point.X - 50 * scale, point.Y - 38 * scale, 100 * scale, 38 * scale, new Color(38, 77, 47));
-        DrawDiamond(batch, diamond, point.X, point.Y - 38 * scale, 100 * scale, 38 * scale, snapshot.ServiceShortages > 0 ? Color.OrangeRed : new Color(72, 137, 81));
+        if (renderRoomGeometry)
+        {
+            DrawRect(batch, pixel, point.X - 50 * scale, point.Y - 38 * scale, 100 * scale, 38 * scale, new Color(38, 77, 47));
+            DrawDiamond(batch, diamond, point.X, point.Y - 38 * scale, 100 * scale, 38 * scale, snapshot.ServiceShortages > 0 ? Color.OrangeRed : new Color(72, 137, 81));
+        }
         var counts = snapshot.At(DishState.Available);
         PixelFont.Draw(batch, pixel, "SERVICE", point.X - 43 * scale, point.Y + 8 * scale, 1, Color.White);
         PixelFont.Draw(batch, pixel, $"P{counts.Plates} G{counts.Glasses} T{counts.Trays}", point.X - 43 * scale, point.Y + 21 * scale, 1, Color.LightGray);
     }
 
-    private static void DrawWorker(SpriteBatch batch, Texture pixel, Texture diamond, NewHireSnapshot worker, DishStationPlacements placements, IsometricCamera camera)
+    private static void DrawWorker(SpriteBatch batch, Texture pixel, Texture diamond, PresentationCatalog presentationCatalog,
+        CharacterVisualPose pose, IsometricCamera camera, bool reducedMotion, ActorId id)
     {
-        if (!worker.Enabled) return;
-        var index = ActionStation(worker.LastAction);
-        var position = StationPosition(index, placements);
-        var point = Project(position.X + 0.7f, position.Y + 0.1f, camera);
-        DrawPawn(batch, pixel, diamond, point, camera.Zoom, new Color(185, 111, 210), $"A{worker.Id.Value}");
+        var presentation = presentationCatalog.Resolve(PresentationIds.NewHire, PresentationIds.FallbackActor);
+        DrawCharacter(batch, pixel, diamond, pose, camera, presentation, $"A{id.Value}", reducedMotion);
     }
 
-    private static void DrawPlayer(SpriteBatch batch, Texture pixel, Texture diamond, Vector2 playerCell, IsometricCamera camera)
+    private static void DrawPlayer(SpriteBatch batch, Texture pixel, Texture diamond, PresentationCatalog presentationCatalog,
+        CharacterVisualPose pose, IsometricCamera camera, bool reducedMotion)
     {
-        var point = Project(playerCell.X - 0.35f, playerCell.Y - 0.2f, camera);
-        DrawPawn(batch, pixel, diamond, point, camera.Zoom, Color.Yellow, "YOU");
+        var presentation = presentationCatalog.Resolve(PresentationIds.Player, PresentationIds.FallbackActor);
+        DrawCharacter(batch, pixel, diamond, pose, camera, presentation, "YOU", reducedMotion);
     }
 
     private static void DrawPlacementPreview(SpriteBatch batch, Texture pixel, Texture diamond, DishStationFixture fixture, FloorCell cell, bool valid, IsometricCamera camera)
@@ -270,20 +314,55 @@ internal static class IsometricStationScene
         PixelFont.Draw(batch, pixel, $"PLACE {FixtureLabel(fixture)}  {cell.X},{cell.Y}", point.X - 55 * camera.Zoom, point.Y + 20 * camera.Zoom, 1, color, 22);
     }
 
-    private static void DrawPawn(SpriteBatch batch, Texture pixel, Texture diamond, Vector2 point, float scale, Color color, string label)
+    private static void DrawCharacter(SpriteBatch batch, Texture pixel, Texture diamond, CharacterVisualPose pose,
+        IsometricCamera camera, PresentationDefinition presentation, string label, bool reducedMotion)
     {
-        DrawDiamond(batch, diamond, point.X, point.Y, 26 * scale, 12 * scale, new Color(18, 24, 27, 190));
-        DrawRect(batch, pixel, point.X - 5 * scale, point.Y - 29 * scale, 10 * scale, 23 * scale, color);
-        DrawRect(batch, pixel, point.X - 7 * scale, point.Y - 38 * scale, 14 * scale, 12 * scale, color);
-        PixelFont.Draw(batch, pixel, label, point.X - 13 * scale, point.Y - 52 * scale, 1, color);
+        if (!pose.Visible) return;
+        var point = Project(pose.Cell.X, pose.Cell.Y, camera);
+        var scale = camera.Zoom;
+        var rig = SharedCharacterRig.Resolve(pose, reducedMotion);
+        var bob = rig.BodyBob * scale;
+        var bodyWidth = presentation.Width * scale;
+        var bodyHeight = presentation.Height * 0.5f * scale;
+        var headWidth = MathF.Min(14, presentation.Width) * scale;
+        if (rig.SelectionVisible)
+            DrawDiamond(batch, diamond, point.X, point.Y + 1 * scale, (presentation.Width + 22) * scale, 17 * scale, new Color(255, 220, 72, 205));
+        DrawDiamond(batch, diamond, point.X, point.Y, 29 * scale, 13 * scale, new Color(18, 24, 27, 210));
+
+        var leftLegY = point.Y - 10 * scale + rig.LeftStride * scale;
+        var rightLegY = point.Y - 10 * scale + rig.RightStride * scale;
+        DrawRect(batch, pixel, point.X - 5 * scale, leftLegY, 4 * scale, 10 * scale, presentation.SecondaryColor);
+        DrawRect(batch, pixel, point.X + 1 * scale, rightLegY, 4 * scale, 10 * scale, presentation.SecondaryColor);
+
+        var bodyY = point.Y - 9 * scale - bodyHeight - bob;
+        DrawRect(batch, pixel, point.X - bodyWidth * 0.5f, bodyY, bodyWidth, bodyHeight, presentation.PrimaryColor);
+        var reachX = rig.FacingX * rig.WorkReach * 10 * scale;
+        var reachY = rig.FacingY * rig.WorkReach * 6 * scale;
+        DrawRect(batch, pixel, point.X - bodyWidth * 0.5f - 4 * scale + reachX, bodyY + 3 * scale + reachY, 4 * scale, 14 * scale, presentation.PrimaryColor);
+        DrawRect(batch, pixel, point.X + bodyWidth * 0.5f + reachX, bodyY + 3 * scale + reachY, 4 * scale, 14 * scale, presentation.PrimaryColor);
+
+        var headY = bodyY - 11 * scale;
+        DrawRect(batch, pixel, point.X - headWidth * 0.5f, headY, headWidth, 12 * scale, new Color(226, 183, 150));
+        DrawRect(batch, pixel, point.X - headWidth * 0.5f, headY, headWidth, 3 * scale, presentation.SecondaryColor);
+        DrawRect(batch, pixel,
+            point.X - 1.5f * scale + rig.FacingX * 4 * scale,
+            headY + 5 * scale + rig.FacingY * 2 * scale,
+            3 * scale, 3 * scale, new Color(37, 43, 45));
+        if (pose.Animation == CharacterAnimationState.Work)
+            DrawDiamond(batch, diamond, point.X + rig.FacingX * 14 * scale, point.Y - 19 * scale + rig.FacingY * 7 * scale,
+                7 * scale, 5 * scale, Color.White);
+        PixelFont.Draw(batch, pixel, label, point.X - 13 * scale, headY - 14 * scale, 1,
+            rig.SelectionVisible ? Color.Yellow : presentation.PrimaryColor);
     }
 
-    private static void DrawDishStack(SpriteBatch batch, Texture pixel, Texture diamond, float x, float y, DishCounts counts, float scale)
+    private static void DrawDishStack(SpriteBatch batch, Texture pixel, Texture diamond, PresentationCatalog presentationCatalog,
+        float x, float y, DishCounts counts, float scale)
     {
         var total = Math.Min(counts.Total, 6);
-        var color = counts.Trays > 0 ? Color.Goldenrod : counts.Glasses > 0 ? Color.MediumTurquoise : Color.CornflowerBlue;
+        var id = counts.Trays > 0 ? PresentationIds.Tray : counts.Glasses > 0 ? PresentationIds.Glass : PresentationIds.Plate;
+        var item = presentationCatalog.Resolve(id, PresentationIds.FallbackItem);
         for (var i = 0; i < total; i++)
-            DrawDiamond(batch, diamond, x + i * 5 * scale, y - i * 3 * scale, 20 * scale, 8 * scale, color);
+            DrawDiamond(batch, diamond, x + i * 5 * scale, y - i * 3 * scale, item.Width * scale, item.Height * scale, item.PrimaryColor);
     }
 
     private static void DrawLegend(SpriteBatch batch, Texture pixel, DishStationSnapshot snapshot)
@@ -308,21 +387,17 @@ internal static class IsometricStationScene
         _ => fixture.ToString().ToUpperInvariant(),
     };
 
-    private static int ActionStation(DishAction? action) => action switch
-    {
-        DishAction.Scrape => 0,
-        DishAction.Rack => 1,
-        DishAction.StartWasher => 2,
-        DishAction.Unload => 3,
-        DishAction.DryAndRestock => 4,
-        _ => 0,
-    };
-
     private static Vector2 Project(float x, float y, IsometricCamera camera) => new(
         OriginX + camera.OffsetX + (x - y) * TileWidth * 0.5f * camera.Zoom,
         OriginY + camera.OffsetY + (x + y) * TileHeight * 0.5f * camera.Zoom);
 
     private static Color Darken(Color color) => new((byte)(color.R * 0.55f), (byte)(color.G * 0.55f), (byte)(color.B * 0.55f), color.A);
+
+    private static PresentationDefinition ResolveWasher(PresentationCatalog catalog, bool assetAvailable)
+    {
+        var presentation = catalog.Resolve(PresentationIds.Washer, PresentationIds.FallbackWorkstation);
+        return assetAvailable ? presentation : catalog.ResolveFallback(presentation);
+    }
 
     private static void DrawRect(SpriteBatch batch, Texture pixel, float x, float y, float width, float height, Color color) =>
         batch.Draw(pixel, new RectangleF(x, y, width, height), color, Color.Black);
