@@ -9,14 +9,16 @@ public sealed record AutomationCareerSave(
     int SchemaVersion,
     DishStationReplaySave FirstShift,
     TwoStationRoutingReplaySave TwoStationRouting,
+    VendorOutsourcingReplaySave? VendorOutsourcing,
     PatternKnowledgeProfile PatternKnowledge)
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 }
 
 public sealed record AutomationCareerState(
     DishStationWorld FirstShift,
     TwoStationRoutingWorld TwoStationRouting,
+    VendorOutsourcingWorld VendorOutsourcing,
     PatternKnowledgeProfile PatternKnowledge);
 
 public static class AutomationCareerSaveStore
@@ -37,18 +39,21 @@ public static class AutomationCareerSaveStore
     public static AutomationCareerState Deserialize(
         string json,
         int legacyRoutingSeed,
-        TwoStationRoutingConfiguration legacyRoutingConfiguration)
+        TwoStationRoutingConfiguration legacyRoutingConfiguration,
+        VendorOutsourcingConfiguration legacyVendorConfiguration)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(json);
         ArgumentNullException.ThrowIfNull(legacyRoutingConfiguration);
+        ArgumentNullException.ThrowIfNull(legacyVendorConfiguration);
         using var document = JsonDocument.Parse(json);
         if (!document.RootElement.TryGetProperty("firstShift", out _))
             return new(DishStationSaveStore.Deserialize(json),
-                new TwoStationRoutingWorld(legacyRoutingSeed, legacyRoutingConfiguration), PatternKnowledgeProfile.Empty);
+                new TwoStationRoutingWorld(legacyRoutingSeed, legacyRoutingConfiguration),
+                new VendorOutsourcingWorld(legacyVendorConfiguration), PatternKnowledgeProfile.Empty);
 
         var save = JsonSerializer.Deserialize<AutomationCareerSave>(json, Options)
             ?? throw new InvalidDataException("The career save did not contain a checkpoint.");
-        if (save.SchemaVersion is not (1 or AutomationCareerSave.CurrentSchemaVersion))
+        if (save.SchemaVersion is not (1 or 2 or AutomationCareerSave.CurrentSchemaVersion))
             throw new NotSupportedException($"Career save schema {save.SchemaVersion} is not supported.");
         if (save.FirstShift is null || save.TwoStationRouting is null || save.PatternKnowledge is null)
             throw new InvalidDataException("The career save is incomplete.");
@@ -56,8 +61,12 @@ public static class AutomationCareerSaveStore
             ? MigrateSchemaOnePatternKnowledge(save.PatternKnowledge)
             : save.PatternKnowledge;
         patternKnowledge.Validate();
+        var vendor = save.SchemaVersion < AutomationCareerSave.CurrentSchemaVersion
+            ? new VendorOutsourcingWorld(legacyVendorConfiguration)
+            : VendorOutsourcingWorld.Restore(save.VendorOutsourcing
+                ?? throw new InvalidDataException("The career save is missing its vendor comparison replay."));
         return new(DishStationWorld.Restore(save.FirstShift), TwoStationRoutingWorld.Restore(save.TwoStationRouting),
-            patternKnowledge);
+            vendor, patternKnowledge);
     }
 
     public static void SaveFileAtomic(string path, AutomationCareerState state)
@@ -80,16 +89,19 @@ public static class AutomationCareerSaveStore
     public static AutomationCareerState LoadFile(
         string path,
         int legacyRoutingSeed,
-        TwoStationRoutingConfiguration legacyRoutingConfiguration)
+        TwoStationRoutingConfiguration legacyRoutingConfiguration,
+        VendorOutsourcingConfiguration legacyVendorConfiguration)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Deserialize(File.ReadAllText(Path.GetFullPath(path)), legacyRoutingSeed, legacyRoutingConfiguration);
+        return Deserialize(File.ReadAllText(Path.GetFullPath(path)), legacyRoutingSeed, legacyRoutingConfiguration,
+            legacyVendorConfiguration);
     }
 
     private static AutomationCareerSave ToSave(AutomationCareerState state) => new(
         AutomationCareerSave.CurrentSchemaVersion,
         state.FirstShift.CreateReplaySave(),
         state.TwoStationRouting.CreateReplaySave(),
+        state.VendorOutsourcing.CreateReplaySave(),
         state.PatternKnowledge.Validate());
 
     private static PatternKnowledgeProfile MigrateSchemaOnePatternKnowledge(PatternKnowledgeProfile profile)

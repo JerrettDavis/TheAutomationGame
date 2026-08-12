@@ -19,8 +19,8 @@ public sealed class AutomationCareerSaveStoreTests
             routing.Snapshot(), DishStationPatternContent.Strategy);
 
         var restored = AutomationCareerSaveStore.Deserialize(
-            AutomationCareerSaveStore.Serialize(new(firstShift, routing, profile)),
-            42, DishStationTwoStationsContent.Configuration);
+            AutomationCareerSaveStore.Serialize(new(firstShift, routing, Vendor(), profile)),
+            42, DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
 
         Assert.Equal(Json(firstShift.Snapshot()), Json(restored.FirstShift.Snapshot()));
         Assert.Equal(Json(routing.Snapshot()), Json(restored.TwoStationRouting.Snapshot()));
@@ -37,20 +37,21 @@ public sealed class AutomationCareerSaveStoreTests
         var profile = RestaurantPatternEvidenceRecognizer.Recognize(PatternKnowledgeProfile.Empty,
             routing.Snapshot(), DishStationPatternContent.Strategy);
         var root = JsonNode.Parse(AutomationCareerSaveStore.Serialize(new(
-            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, profile)))!.AsObject();
+            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, Vendor(), profile)))!.AsObject();
         root["schemaVersion"] = 1;
         foreach (var pattern in root["patternKnowledge"]!["patterns"]!.AsArray())
             pattern!.AsObject().Remove("conclusions");
 
         var restored = AutomationCareerSaveStore.Deserialize(root.ToJsonString(), 42,
-            DishStationTwoStationsContent.Configuration);
+            DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
         var knowledge = restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
 
         Assert.True(knowledge.Has(PatternKnowledgeMilestone.Recognized));
         var conclusion = Assert.Single(knowledge.Conclusions);
         Assert.Equal(PatternKnowledgeMilestone.Recognized, conclusion.Milestone);
         Assert.Contains(knowledge.Evidence, evidence => evidence.Id == conclusion.Basis);
-        Assert.Contains("\"schemaVersion\": 2", AutomationCareerSaveStore.Serialize(restored), StringComparison.Ordinal);
+        Assert.Contains("\"schemaVersion\": 3", AutomationCareerSaveStore.Serialize(restored), StringComparison.Ordinal);
+        Assert.Empty(restored.VendorOutsourcing.Snapshot().Trials);
     }
 
     [Fact]
@@ -62,14 +63,39 @@ public sealed class AutomationCareerSaveStoreTests
         var named = PatternNamingService.RecordReflection(recognized, DishStationPatternContent.Strategy);
 
         var restored = AutomationCareerSaveStore.Deserialize(AutomationCareerSaveStore.Serialize(new(
-            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, named)),
-            42, DishStationTwoStationsContent.Configuration);
+            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, Vendor(), named)),
+            42, DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
         var knowledge = restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
 
         Assert.True(knowledge.Has(PatternKnowledgeMilestone.Named));
         Assert.Equal(2, knowledge.Conclusions.Length);
         Assert.All(knowledge.Conclusions, conclusion =>
             Assert.Contains(knowledge.Evidence, evidence => evidence.Id == conclusion.Basis));
+    }
+
+    [Fact]
+    public void VendorComparisonSurvivesSchemaThreeCareerResumeWhileSchemaTwoStartsItEmpty()
+    {
+        var vendor = Vendor();
+        vendor.ExecuteNow(new SelectVendorProposalCommand(vendor.Tick, VendorProposalId.ManagedVendor));
+        vendor.ExecuteNow(new RunVendorProposalTrialCommand(vendor.Tick));
+        vendor.ExecuteNow(new SelectVendorProposalCommand(vendor.Tick, VendorProposalId.ObservableVendor));
+        vendor.ExecuteNow(new RunVendorProposalTrialCommand(vendor.Tick));
+        var state = new AutomationCareerState(
+            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration),
+            CompletedRouting(), vendor, PatternKnowledgeProfile.Empty);
+
+        var json = AutomationCareerSaveStore.Serialize(state);
+        var restored = AutomationCareerSaveStore.Deserialize(json, 42,
+            DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
+        Assert.Equal(Json(vendor.Snapshot()), Json(restored.VendorOutsourcing.Snapshot()));
+
+        var schemaTwo = JsonNode.Parse(json)!.AsObject();
+        schemaTwo["schemaVersion"] = 2;
+        schemaTwo.Remove("vendorOutsourcing");
+        restored = AutomationCareerSaveStore.Deserialize(schemaTwo.ToJsonString(), 42,
+            DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
+        Assert.Empty(restored.VendorOutsourcing.Snapshot().Trials);
     }
 
     [Fact]
@@ -80,12 +106,12 @@ public sealed class AutomationCareerSaveStoreTests
             routing.Snapshot(), DishStationPatternContent.Strategy);
         var named = PatternNamingService.RecordReflection(recognized, DishStationPatternContent.Strategy);
         var json = AutomationCareerSaveStore.Serialize(new(
-            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, named));
+            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, Vendor(), named));
         json = json.Replace("\"basis\": \"restaurant.two-stations.fitted\"",
             "\"basis\": \"missing-evidence\"", StringComparison.Ordinal);
 
         Assert.Throws<ArgumentException>(() => AutomationCareerSaveStore.Deserialize(json, 42,
-            DishStationTwoStationsContent.Configuration));
+            DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration));
     }
 
     [Fact]
@@ -95,10 +121,11 @@ public sealed class AutomationCareerSaveStoreTests
         firstShift.ExecuteNow(new CompleteIntroCommand(firstShift.Tick, GuidanceMode.Minimal));
 
         var restored = AutomationCareerSaveStore.Deserialize(DishStationSaveStore.Serialize(firstShift),
-            42, DishStationTwoStationsContent.Configuration);
+            42, DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
 
         Assert.Equal(73, restored.FirstShift.Seed);
         Assert.Empty(restored.TwoStationRouting.Snapshot().Trials);
+        Assert.Empty(restored.VendorOutsourcing.Snapshot().Trials);
         Assert.Empty(restored.PatternKnowledge.Patterns);
     }
 
@@ -113,9 +140,10 @@ public sealed class AutomationCareerSaveStoreTests
             var profile = RestaurantPatternEvidenceRecognizer.Recognize(PatternKnowledgeProfile.Empty,
                 routing.Snapshot(), DishStationPatternContent.Strategy);
             AutomationCareerSaveStore.SaveFileAtomic(path,
-                new(new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, profile));
+                new(new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, Vendor(), profile));
 
-            var restored = AutomationCareerSaveStore.LoadFile(path, 42, DishStationTwoStationsContent.Configuration);
+            var restored = AutomationCareerSaveStore.LoadFile(path, 42, DishStationTwoStationsContent.Configuration,
+                DishStationVendorContent.Configuration);
             Assert.Equal(2, restored.TwoStationRouting.Snapshot().Trials.Count);
             Assert.False(File.Exists(path + ".tmp"));
         }
@@ -132,11 +160,11 @@ public sealed class AutomationCareerSaveStoreTests
         var profile = RestaurantPatternEvidenceRecognizer.Recognize(PatternKnowledgeProfile.Empty,
             routing.Snapshot(), DishStationPatternContent.Strategy);
         var json = AutomationCareerSaveStore.Serialize(new(
-            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, profile));
+            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, Vendor(), profile));
         json = json.Replace("\"pattern.strategy\"", "\"Strategy\"", StringComparison.Ordinal);
 
         Assert.Throws<ArgumentException>(() => AutomationCareerSaveStore.Deserialize(json, 42,
-            DishStationTwoStationsContent.Configuration));
+            DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration));
     }
 
     private static TwoStationRoutingWorld CompletedRouting()
@@ -150,6 +178,8 @@ public sealed class AutomationCareerSaveStoreTests
         routing.ExecuteNow(new RunTwoStationRoutingTrialCommand(routing.Tick));
         return routing;
     }
+
+    private static VendorOutsourcingWorld Vendor() => new(DishStationVendorContent.Configuration);
 
     private static string Json<T>(T value) => JsonSerializer.Serialize(value);
 }

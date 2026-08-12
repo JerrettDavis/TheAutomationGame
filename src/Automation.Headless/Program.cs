@@ -265,8 +265,9 @@ if (args.Contains("--pattern-knowledge-demo", StringComparer.OrdinalIgnoreCase))
     foreach (var evidence in knowledge.Evidence)
         Console.WriteLine($"  evidence={evidence.Id} milestone={evidence.Milestone} place={evidence.Place} consequence={evidence.Consequence} replay={evidence.ReplayReference}");
     var restored = AutomationCareerSaveStore.Deserialize(AutomationCareerSaveStore.Serialize(new(
-        new DishStationWorld(seed, DishStationFirstHoursContent.ScenarioConfiguration), routing, profile)),
-        seed, DishStationTwoStationsContent.Configuration);
+        new DishStationWorld(seed, DishStationFirstHoursContent.ScenarioConfiguration), routing,
+        new VendorOutsourcingWorld(DishStationVendorContent.Configuration), profile)),
+        seed, DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
     var restoredKnowledge = restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
     Console.WriteLine($"pattern-codex outcome recognized={restoredKnowledge.Has(PatternKnowledgeMilestone.Recognized)} named={restoredKnowledge.Has(PatternKnowledgeMilestone.Named)} persistedEvidence={restoredKnowledge.Evidence.Length} replayTrials={restored.TwoStationRouting.Snapshot().Trials.Count}");
     return;
@@ -288,8 +289,9 @@ if (args.Contains("--pattern-naming-demo", StringComparer.OrdinalIgnoreCase))
     Console.WriteLine($"reflection={DishStationPatternContent.Strategy.Naming.ReflectionPrompt}");
     var named = PatternNamingService.RecordReflection(recognized, DishStationPatternContent.Strategy);
     var restored = AutomationCareerSaveStore.Deserialize(AutomationCareerSaveStore.Serialize(new(
-        new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, named)),
-        42, DishStationTwoStationsContent.Configuration);
+        new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing,
+        new VendorOutsourcingWorld(DishStationVendorContent.Configuration), named)),
+        42, DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
     var knowledge = restored.PatternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
     var naming = DishStationPatternContent.Strategy.Naming;
     Console.WriteLine($"pattern-reveal name={naming.DisplayTitle} category={DishStationPatternContent.Strategy.Category.ToUpperInvariant()} intent={naming.Intent}");

@@ -35,6 +35,7 @@ public sealed class DishStationGame : Game
 
     private DishStationWorld world = new(42, DishStationFirstHoursContent.ScenarioConfiguration);
     private TwoStationRoutingWorld twoStationWorld = new(42, DishStationTwoStationsContent.Configuration);
+    private VendorOutsourcingWorld vendorWorld = new(DishStationVendorContent.Configuration);
     private PatternKnowledgeProfile patternKnowledge = PatternKnowledgeProfile.Empty;
     private double simulationAccumulator;
     private DishKind selectedKind = DishKind.Plate;
@@ -1126,9 +1127,10 @@ public sealed class DishStationGame : Game
             try
             {
                 var career = AutomationCareerSaveStore.LoadFile(careerSavePath, 42,
-                    DishStationTwoStationsContent.Configuration);
+                    DishStationTwoStationsContent.Configuration, DishStationVendorContent.Configuration);
                 world = career.FirstShift;
                 twoStationWorld = career.TwoStationRouting;
+                vendorWorld = career.VendorOutsourcing;
                 patternKnowledge = career.PatternKnowledge;
                 var snapshot = world.Snapshot();
                 observedLevel = snapshot.Progression.Level;
@@ -1170,6 +1172,7 @@ public sealed class DishStationGame : Game
 
         world = new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration);
         twoStationWorld = new(42, DishStationTwoStationsContent.Configuration);
+        vendorWorld = new(DishStationVendorContent.Configuration);
         patternKnowledge = PatternKnowledgeProfile.Empty;
         introPage = 0;
         selectedGuidance = GuidanceMode.Guided;
@@ -1197,7 +1200,7 @@ public sealed class DishStationGame : Game
         try
         {
             AutomationCareerSaveStore.SaveFileAtomic(careerSavePath,
-                new(world, twoStationWorld, patternKnowledge));
+                new(world, twoStationWorld, vendorWorld, patternKnowledge));
             lastAutosaveTick = world.Tick.Value;
             saveStatus = "SAVED";
         }
