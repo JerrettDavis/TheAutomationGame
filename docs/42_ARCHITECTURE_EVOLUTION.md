@@ -270,6 +270,8 @@ S030 adds a separate, bounded two-station routing episode after the first shift.
 
 S031 adds engine-neutral, immutable pattern knowledge without teaching the simulation conventional design-pattern names. Content authors the hidden catalog identity, pre-name title, problem signature, evidence threshold, and primary quest. A persistence-layer recognizer translates authoritative S030 replay outcomes into stable evidence and evidence-cited `Encountered`, `Applied`, and `Recognized` milestones; it is idempotent and cannot name the concept. A versioned career envelope persists both replay journals and the knowledge profile, with legacy first-shift-save upgrade. The Stride Codex pauses gameplay and projects only the saved evidence, keeping the conventional name hidden for S032.
 
+S032 keeps naming outside Simulation. Schema-v1 content authors the conventional display name, reflection acknowledgement, intent, concrete restaurant structure, benefits, and costs. `PatternNamingService` is the explicit application boundary: it rejects naming before `Recognized`, retains the applied evidence ID as the `Named` conclusion basis, and is idempotent. Career schema 2 persists conclusion citations and migrates schema-1 recognition. The Stride Codex submits the reflection action, saves immediately, and projects the named page; it does not score an answer or invent knowledge.
+
 ## Save evolution
 
 Before campaign alpha, saves should include:

@@ -4,9 +4,9 @@ This is the reviewer-facing visual index for delivered session features. The PNG
 
 ## Current integrated build
 
-![Evidence-backed pre-name Pattern Codex](screenshots/first-shift/pattern-codex.png)
+![Named Strategy Pattern page](screenshots/first-shift/strategy-pattern.png)
 
-The retained set was captured on 2026-08-12 from the integrated S001–S031 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, ran the copied and fitted two-station trials, recognized their reusable shape, rendered the representative benchmark, and resumed the saved level-7 career with both evidence records intact.
+The retained set was captured on 2026-08-12 from the integrated S001–S032 build by `tools/ui-smoke.ps1`. The run completed `EpisodeComplete`, passed the 3/3 live reliability window, wrote playtest evidence, exercised every lens, validated placement/undo/reset and save/restore, ran the copied and fitted two-station trials, recognized their reusable shape, recorded reflection, revealed Strategy, rendered the representative benchmark, and resumed the saved level-7 career with both evidence records and the named conclusion intact.
 
 ## Historical delivery mapping
 
@@ -43,6 +43,7 @@ The retained set was captured on 2026-08-12 from the integrated S001–S031 buil
 | S029 | Lightweight Shift Economy | [shift report](screenshots/first-shift/shift-report.png) | Frozen value, labor, staffing, rework, shortage, incident, investment, total-cost, and net scorecard |
 | S030 | Two Stations, One Problem | [two-station routing board](screenshots/first-shift/two-stations.png) | Same routing decision slot at both stations, demand-fitted policies, zero-shortage outcome, and authored discovery |
 | S031 | Pattern Knowledge and Codex Foundation | [pre-name Pattern Codex](screenshots/first-shift/pattern-codex.png) | Player-owned encountered/applied records, causal consequences, recognition, and deliberately withheld conventional name |
+| S032 | Name the Pattern | [Strategy Pattern reveal](screenshots/first-shift/strategy-pattern.png) | Evidence-gated conventional name, concrete structure, benefits, costs, and the player's two causal outcomes |
 
 ## Additional retained review frames
 
@@ -59,6 +60,7 @@ The retained set was captured on 2026-08-12 from the integrated S001–S031 buil
 - [new-career confirmation](screenshots/first-shift/career-new-confirm.png)
 - [career resumed](screenshots/first-shift/career-resumed.png)
 - [Pattern Codex after career resume](screenshots/first-shift/pattern-codex-resumed.png)
+- [named Strategy page after career resume](screenshots/first-shift/strategy-pattern-resumed.png)
 
 ## Refresh contract
 

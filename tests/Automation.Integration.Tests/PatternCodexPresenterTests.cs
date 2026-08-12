@@ -24,7 +24,29 @@ public sealed class PatternCodexPresenterTests
         Assert.Equal(2, view.Evidence.Count);
         Assert.Contains(view.Evidence, evidence => evidence.Consequence.Contains("1 SHORTAGE", StringComparison.Ordinal));
         Assert.Contains(view.Evidence, evidence => evidence.Consequence.Contains("BOTH STATIONS SUPPLIED", StringComparison.Ordinal));
+        Assert.Null(view.Named);
         Assert.DoesNotContain("strategy", AllText(view), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void NamedPageRevealsAuthoredStructureTradeoffsAndLivedEvidence()
+    {
+        var routing = CompletedRouting();
+        var recognized = RestaurantPatternEvidenceRecognizer.Recognize(PatternKnowledgeProfile.Empty,
+            routing.Snapshot(), DishStationPatternContent.Strategy);
+        var named = PatternNamingService.RecordReflection(recognized, DishStationPatternContent.Strategy);
+
+        var view = PatternCodexPresenter.Present(DishStationPatternContent.Strategy,
+            named.For(DishStationPatternContent.Strategy.PatternId));
+
+        Assert.Equal("STRATEGY PATTERN", view.Title);
+        Assert.Equal("NAMED FROM YOUR LIVED WORK", view.Status);
+        Assert.Equal("CONVENTIONAL NAME  STRATEGY", view.NameStatus);
+        Assert.Equal("BEHAVIORAL", view.Named!.Category);
+        Assert.Equal(3, view.Named.Structure.Count);
+        Assert.Equal(2, view.Named.Benefits.Count);
+        Assert.Equal(2, view.Named.Costs.Count);
+        Assert.Equal(2, view.Evidence.Count);
     }
 
     private static TwoStationRoutingWorld CompletedRouting()
@@ -40,6 +62,6 @@ public sealed class PatternCodexPresenterTests
     }
 
     private static string AllText(PatternCodexView view) => string.Join(' ', view.Title, view.Status,
-        view.NameStatus, view.EvidenceSummary, string.Join(' ', view.Evidence.Select(evidence =>
+        view.NameStatus, view.EvidenceSummary, view.ReflectionPrompt, view.ReflectionAction, string.Join(' ', view.Evidence.Select(evidence =>
             $"{evidence.Milestone} {evidence.Place} {evidence.Problem} {evidence.Solution} {evidence.Consequence}")));
 }

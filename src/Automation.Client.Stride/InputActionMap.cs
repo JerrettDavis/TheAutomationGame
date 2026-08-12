@@ -98,6 +98,7 @@ public enum GameInputAction
     TwoStationRoutingRunTrial,
     TwoStationRoutingClose,
     PatternCodexToggle,
+    PatternCodexReflect,
     PatternCodexClose,
     TogglePlacement,
     PlacementPrevious,
@@ -148,7 +149,7 @@ public readonly record struct KeyboardBinding(GameInputAction Action, KeyboardKe
 
 public sealed class InputBindingProfile
 {
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 7;
     private readonly KeyboardKey[][] keysByAction;
     private readonly string[] displayNames;
     private readonly string[] primaryDisplayNames;
@@ -213,6 +214,7 @@ public sealed class InputBindingProfile
         new(GameInputAction.TwoStationRoutingRunTrial, KeyboardKey.Enter),
         new(GameInputAction.TwoStationRoutingClose, KeyboardKey.Escape),
         new(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8),
+        new(GameInputAction.PatternCodexReflect, KeyboardKey.Enter),
         new(GameInputAction.PatternCodexClose, KeyboardKey.Escape),
         new(GameInputAction.TogglePlacement, KeyboardKey.M),
         new(GameInputAction.PlacementPrevious, KeyboardKey.Q), new(GameInputAction.PlacementNext, KeyboardKey.E),
@@ -241,7 +243,7 @@ public sealed class InputBindingProfile
     [JsonConstructor]
     public InputBindingProfile(int schemaVersion, KeyboardBinding[] bindings)
     {
-        if (schemaVersion is not (2 or 3 or 4 or 5 or CurrentSchemaVersion))
+        if (schemaVersion is not (2 or 3 or 4 or 5 or 6 or CurrentSchemaVersion))
             throw new ArgumentOutOfRangeException(nameof(schemaVersion), $"Unsupported input binding schema {schemaVersion}.");
         ArgumentNullException.ThrowIfNull(bindings);
         SchemaVersion = CurrentSchemaVersion;
@@ -261,6 +263,10 @@ public sealed class InputBindingProfile
             new(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8),
             new(GameInputAction.PatternCodexClose, KeyboardKey.Escape),
         };
+        var namingAdditions = new KeyboardBinding[]
+        {
+            new(GameInputAction.PatternCodexReflect, KeyboardKey.Enter),
+        };
         var additions = schemaVersion switch
         {
             2 => new KeyboardBinding[]
@@ -274,7 +280,7 @@ public sealed class InputBindingProfile
                 new(GameInputAction.AutomationEditorSaveBaseline, KeyboardKey.B),
                 new(GameInputAction.AutomationEditorSaveVariant, KeyboardKey.V),
                 new(GameInputAction.AutomationEditorRunComparison, KeyboardKey.R),
-            }.Concat(twoStationAdditions).Concat(codexAdditions).ToArray(),
+            }.Concat(twoStationAdditions).Concat(codexAdditions).Concat(namingAdditions).ToArray(),
             3 =>
             [
                 new(GameInputAction.AutomationEditorSaveBaseline, KeyboardKey.B),
@@ -282,9 +288,11 @@ public sealed class InputBindingProfile
                 new(GameInputAction.AutomationEditorRunComparison, KeyboardKey.R),
                 .. twoStationAdditions,
                 .. codexAdditions,
+                .. namingAdditions,
             ],
-            4 => twoStationAdditions.Concat(codexAdditions).ToArray(),
-            5 => codexAdditions,
+            4 => twoStationAdditions.Concat(codexAdditions).Concat(namingAdditions).ToArray(),
+            5 => codexAdditions.Concat(namingAdditions).ToArray(),
+            6 => namingAdditions,
             _ => [],
         };
         var missingAdditions = additions.Where(addition =>
@@ -376,7 +384,7 @@ public static class InputActionCatalog
             GameInputAction.TwoStationRoutingCopy or GameInputAction.TwoStationRoutingRunTrial or
             GameInputAction.TwoStationRoutingClose => InputActionContext.TwoStationRouting,
         GameInputAction.TwoStationRoutingToggle => InputActionContext.Gameplay,
-        GameInputAction.PatternCodexClose => InputActionContext.PatternCodex,
+        GameInputAction.PatternCodexReflect or GameInputAction.PatternCodexClose => InputActionContext.PatternCodex,
         GameInputAction.PatternCodexToggle => InputActionContext.Gameplay,
         GameInputAction.PlacementPrevious or GameInputAction.PlacementNext or GameInputAction.PlacementLeft or GameInputAction.PlacementRight or
             GameInputAction.PlacementUp or GameInputAction.PlacementDown or GameInputAction.PlacementConfirm or GameInputAction.PlacementUndo or

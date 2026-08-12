@@ -28,6 +28,7 @@ public sealed class InputActionMapTests
         Assert.True(profile.Matches(GameInputAction.TwoStationRoutingToggle, KeyboardKey.Digit7));
         Assert.Equal(InputActionContext.TwoStationRouting, InputActionCatalog.ContextOf(GameInputAction.TwoStationRoutingRunTrial));
         Assert.True(profile.Matches(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8));
+        Assert.True(profile.Matches(GameInputAction.PatternCodexReflect, KeyboardKey.Enter));
         Assert.Equal(InputActionContext.PatternCodex, InputActionCatalog.ContextOf(GameInputAction.PatternCodexClose));
         Assert.Equal(InputActionContext.AutomationEditor, InputActionCatalog.ContextOf(GameInputAction.AutomationEditorToggleValue));
         Assert.Equal(InputActionContext.Gameplay, InputActionCatalog.ContextOf(GameInputAction.ProcessCaptureToggle));
@@ -152,6 +153,22 @@ public sealed class InputActionMapTests
         Assert.True(migrated.Matches(GameInputAction.Interact, KeyboardKey.Space));
         Assert.True(migrated.Matches(GameInputAction.PatternCodexToggle, KeyboardKey.Digit8));
         Assert.True(migrated.Matches(GameInputAction.PatternCodexClose, KeyboardKey.Escape));
+        Assert.True(migrated.Matches(GameInputAction.PatternCodexReflect, KeyboardKey.Enter));
+    }
+
+    [Fact]
+    public void SchemaSixProfileAddsReflectionWithoutLosingCodexRemaps()
+    {
+        var legacy = InputBindingProfile.Default
+            .WithBinding(GameInputAction.PatternCodexToggle, KeyboardKey.K)
+            .Bindings
+            .Where(binding => binding.Action != GameInputAction.PatternCodexReflect)
+            .ToArray();
+
+        var migrated = new InputBindingProfile(6, legacy);
+
+        Assert.True(migrated.Matches(GameInputAction.PatternCodexToggle, KeyboardKey.K));
+        Assert.True(migrated.Matches(GameInputAction.PatternCodexReflect, KeyboardKey.Enter));
     }
 
     [Fact]

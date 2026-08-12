@@ -118,11 +118,13 @@ PatternKnowledge
 
 The simulation does not need to understand "Strategy Pattern." Pattern knowledge belongs to progression/content interpretation.
 
-### Current S031 boundary
+### Current S031–S032 boundary
 
 The first implemented pattern record is deliberately pre-name. Schema-v1 authors a hidden `PatternDefinition` for the reusable restaurant routing choice, its problem signature, qualifying evidence count, and primary discovery quest. `RestaurantPatternEvidenceRecognizer` interprets only authoritative two-station replay outcomes: the copied-policy shortage records `Encountered`, and the demand-fitted zero-shortage trial records `Applied`; together they conclude `Recognized`. The recognizer is idempotent and cannot conclude `Named`.
 
-The career save owns the immutable evidence journal and milestone citations. The client Codex is only a projection of that profile: it uses the authored pre-name title, prints the player's own problem/move/consequence records, and explicitly says that the conventional name is not recorded. S032 owns the reflection and naming transition. No quiz gate, client-side inference, or throughput bonus is attached to recognition.
+The career save owns the immutable evidence journal and milestone citations. Before naming, the client Codex is only a projection of that profile: it uses the authored pre-name title, prints the player's own problem/move/consequence records, and explicitly says that the conventional name is not recorded.
+
+S032 adds an explicit reflection acknowledgement through `PatternNamingService`. It refuses unrecognized profiles, cites the recognized application evidence, records `Named` idempotently, and persists the conclusion without changing either restaurant simulation. The Codex then reveals **Strategy Pattern** and authored intent, concrete roles, benefits, and costs alongside the two trial outcomes. There is no quiz gate, client-side inference, XP award, or throughput bonus. Transfer, stress testing, composition, and code remain later evidence milestones.
 
 ## Multiple entry points
 

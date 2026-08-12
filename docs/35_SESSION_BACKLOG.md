@@ -758,13 +758,25 @@ N4 Player Tools is complete through process capture/editing, restricted automati
 - Production content compiled to 22 definitions with SHA-256 `0caeb0b816375a197d23078f158b3c3c1166aea4e8e07636e02dafb2a1fd5a99`.
 - `dotnet build TheAutomationGame.sln -c Release --no-restore` passed with 0 warnings/errors. `dotnet test TheAutomationGame.sln -c Release --no-build` passed 288/288: Content 63, Domain 31, Simulation 57, Integration 137.
 
-### S032 — Name the Pattern — TODO
+### S032 — Name the Pattern — DONE
 
 **Value:** Strategy is named only after use/recognition.
 
 **Deliver:** recognition beat, conventional name reveal, structure/tradeoff page, no quiz gate.
 
 **Proof:** new profile reaches reveal only after qualifying evidence.
+
+**Evidence (2026-08-12):**
+
+- Wrote the episode before implementation: the starting profile is recognized but unnamed; the player reviews their lived records and explicitly acknowledges the recurring shape; the terminal profile is named and saved. The action is not a vocabulary question, answer score, XP gate, or simulation mutation.
+- Extended schema-v1 pattern content with the conventional/display names, reflection prompt and acknowledgement, intent, three concrete restaurant roles, benefits, and costs. Validation requires complete unique reveal copy while keeping the pre-name title free of conventional vocabulary. Production content compiles to 22 definitions with SHA-256 `453b08f71ebe194f35fe854dc1ba1950add91024c84bd33bdf33841442b717e3`.
+- Added persisted `PatternKnowledgeConclusion` citations and lifecycle order: `Named` requires `Recognized`, `Mastered` requires `Named`, and every conclusion must cite existing player evidence. Career schema 2 retains those citations and migrates schema-1 recognition to its applied record.
+- Added `PatternNamingService` as the explicit application boundary. It rejects an empty/unrecognized profile, names recognized Strategy knowledge idempotently, cites `restaurant.two-stations.fitted`, and leaves both authoritative restaurant worlds unchanged.
+- The deterministic `--pattern-naming-demo` begins recognized/unnamed, records reflection, prints Strategy intent/structure/benefits/costs, round-trips the career, and ends recognized/named with two evidence records and two routing trials. Repeated normalized output was byte-identical with SHA-256 `a47dac469636e65baf28835a4c83bf93be86f4814bd259b4010cac7db694c57a`.
+- The paused `8` Codex now accepts `Enter` reflection only after recognition, saves immediately, and reveals the named page with the player's shortage and zero-shortage outcomes still visible. Native Release semantic smoke passed the complete journey and resumed with `routingTrials=2`, `routingShortages=0`, and `codex=named:2`.
+- Both [the reveal frame](screenshots/first-shift/strategy-pattern.png) and [the resumed named page](screenshots/first-shift/strategy-pattern-resumed.png) were inspected at original resolution after correcting unsupported glyphs, text collisions, and awkward wraps.
+- ADR-0020 records the evidence-gated application boundary, authored reveal content, conclusion migration, and deliberate absence of quiz or simulation-side naming.
+- `dotnet build TheAutomationGame.sln -c Release --no-restore` passed with 0 warnings/errors. `dotnet test TheAutomationGame.sln -c Release --no-build` passed 294/294: Content 63, Domain 31, Simulation 57, Integration 143.
 
 ### S033 — Vendor and Outsourcing Side Arc — TODO
 

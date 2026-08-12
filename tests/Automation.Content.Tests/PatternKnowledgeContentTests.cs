@@ -41,11 +41,11 @@ public sealed class PatternKnowledgeContentTests
         error = Assert.Throws<ContentCompilationException>(() => ContentCompilerV1.Compile(missingQuest));
         Assert.Contains(error.Diagnostics, diagnostic => diagnostic.Path.Contains("primary_encounters", StringComparison.Ordinal));
 
-        var missingTradeoff = ProductionYaml().Replace(
-            "      costs:\r\n        - EVERY ADDED POLICY NEEDS A CLEAR SELECTION RULE AND ITS OWN VALIDATION.\r\n        - COPYING A POLICY WITHOUT ITS CONTEXT CAN PRODUCE A PLAUSIBLE BUT WRONG RESULT.",
-            "      costs: []", StringComparison.Ordinal).Replace(
-            "      costs:\n        - EVERY ADDED POLICY NEEDS A CLEAR SELECTION RULE AND ITS OWN VALIDATION.\n        - COPYING A POLICY WITHOUT ITS CONTEXT CAN PRODUCE A PLAUSIBLE BUT WRONG RESULT.",
+        var normalized = ProductionYaml().Replace("\r\n", "\n", StringComparison.Ordinal);
+        var missingTradeoff = normalized.Replace(
+            "      costs:\n        - EACH POLICY NEEDS A CLEAR SELECTION RULE AND VALIDATION.\n        - COPYING A POLICY WITHOUT ITS CONTEXT CAN LOOK RIGHT AND STILL FAIL.",
             "      costs: []", StringComparison.Ordinal);
+        Assert.NotEqual(normalized, missingTradeoff);
         error = Assert.Throws<ContentCompilationException>(() => ContentCompilerV1.Compile(missingTradeoff));
         Assert.Contains(error.Diagnostics, diagnostic => diagnostic.Path.Contains("naming.costs", StringComparison.Ordinal));
     }

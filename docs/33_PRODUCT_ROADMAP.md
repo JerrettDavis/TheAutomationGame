@@ -121,7 +121,7 @@ Deliverables:
 3. authored restaurant art/audio pass;
 4. lightweight shift economics;
 5. two-station expansion;
-6. Strategy discovery and Codex tease;
+6. Strategy discovery and evidence-gated named Codex reveal;
 7. vendor/outsourcing side arc;
 8. revised onboarding;
 9. at least five first-hours human playtests;

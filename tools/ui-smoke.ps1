@@ -541,6 +541,10 @@ try {
     Wait-ForTitle $process "[modal=PatternCodex]" 3
     Start-Sleep -Milliseconds 150
     $patternCodexScreenshot = Save-WindowScreenshot $process $windowBounds "pattern-codex"
+    Send-GameControl $process "PatternCodexReflect"
+    Wait-ForTitle $process "[codex=named:2]" 3
+    Start-Sleep -Milliseconds 150
+    $strategyPatternScreenshot = Save-WindowScreenshot $process $windowBounds "strategy-pattern"
     Send-GameControl $process "PatternCodexClose"
     Wait-ForTitle $process "[modal=None]" 3
 
@@ -551,7 +555,7 @@ try {
     Send-GameControl $process "CameraReset"
     Wait-ForTitle $process "[zoom=1.00] [cam=0,0]" 3
 
-    $screenshots = @($lockedToolsScreenshot, $introWelcomeScreenshot, $introGuidanceScreenshot, $introComfortScreenshot, $shiftHandbookScreenshot, $progressionReceiptScreenshot, $earlyJournalScreenshot, $activeQuestDetailScreenshot, $placementScreenshot, $scalingScreenshot, $shiftReviewScreenshot, $shiftRunningScreenshot, $twoStationScreenshot, $patternCodexScreenshot)
+    $screenshots = @($lockedToolsScreenshot, $introWelcomeScreenshot, $introGuidanceScreenshot, $introComfortScreenshot, $shiftHandbookScreenshot, $progressionReceiptScreenshot, $earlyJournalScreenshot, $activeQuestDetailScreenshot, $placementScreenshot, $scalingScreenshot, $shiftReviewScreenshot, $shiftRunningScreenshot, $twoStationScreenshot, $patternCodexScreenshot, $strategyPatternScreenshot)
     Start-Sleep -Milliseconds 150
     $screenshots += Save-WindowScreenshot $process $windowBounds "runtime"
     foreach ($lens in @("State", "Knowledge", "Automation", "Runtime", "Responsibility", "Reality", "Process", "State")) {
@@ -659,10 +663,10 @@ try {
     Wait-ForTitle $process $(if ($SemanticOnly) { "[comfort=motion=full,contrast=standard]" } else { "[comfort=motion=reduced,contrast=high]" }) 3
     Wait-ForTitle $process "[level=7] [xp=3400]" 3
     Wait-ForTitle $process "[trial=Passed:3/3]" 3
-    Wait-ForTitle $process "[routingTrials=2] [routingShortages=0] [codex=recognized:2]" 3
+    Wait-ForTitle $process "[routingTrials=2] [routingShortages=0] [codex=named:2]" 3
     Send-GameControl $process "TogglePatternCodex"
     Wait-ForTitle $process "[modal=PatternCodex]" 3
-    $screenshots += Save-WindowScreenshot $process $windowBounds "pattern-codex-resumed"
+    $screenshots += Save-WindowScreenshot $process $windowBounds "strategy-pattern-resumed"
     Send-GameControl $process "PatternCodexClose"
     Wait-ForTitle $process "[modal=None]" 3
     Send-GameControl $process "ToggleShiftReport"

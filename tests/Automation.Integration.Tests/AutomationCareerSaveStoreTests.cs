@@ -73,6 +73,22 @@ public sealed class AutomationCareerSaveStoreTests
     }
 
     [Fact]
+    public void CareerEnvelopeRejectsAConclusionWithMissingEvidence()
+    {
+        var routing = CompletedRouting();
+        var recognized = RestaurantPatternEvidenceRecognizer.Recognize(PatternKnowledgeProfile.Empty,
+            routing.Snapshot(), DishStationPatternContent.Strategy);
+        var named = PatternNamingService.RecordReflection(recognized, DishStationPatternContent.Strategy);
+        var json = AutomationCareerSaveStore.Serialize(new(
+            new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration), routing, named));
+        json = json.Replace("\"basis\": \"restaurant.two-stations.fitted\"",
+            "\"basis\": \"missing-evidence\"", StringComparison.Ordinal);
+
+        Assert.Throws<ArgumentException>(() => AutomationCareerSaveStore.Deserialize(json, 42,
+            DishStationTwoStationsContent.Configuration));
+    }
+
+    [Fact]
     public void LegacyRawFirstShiftReplayLoadsWithEmptyPostShiftHistory()
     {
         var firstShift = new DishStationWorld(73, DishStationFirstHoursContent.ScenarioConfiguration);

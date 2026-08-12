@@ -331,6 +331,7 @@ public sealed class DishStationGame : Game
 
         if (PatternCodexVisible)
         {
+            if (Pressed(GameInputAction.PatternCodexReflect)) HandleControl(ClientControl.PatternCodexReflect);
             if (Pressed(GameInputAction.PatternCodexClose)) HandleControl(ClientControl.PatternCodexClose);
             PollDriverControl(gameTime.Elapsed.TotalSeconds);
             base.Update(gameTime);
@@ -713,6 +714,7 @@ public sealed class DishStationGame : Game
                 UpdateWindowTitle();
                 break;
             case ClientControl.TogglePatternCodex: TogglePatternCodex(); break;
+            case ClientControl.PatternCodexReflect: RecordPatternReflection(); break;
             case ClientControl.PatternCodexClose:
                 if (PatternCodexVisible) screenRouter.TogglePatternCodex();
                 UpdateWindowTitle();
@@ -1000,6 +1002,29 @@ public sealed class DishStationGame : Game
         }
         screenRouter.TogglePatternCodex();
         commandFeedback = "Codex opened to your restaurant evidence.";
+        UpdateWindowTitle();
+    }
+
+    private void RecordPatternReflection()
+    {
+        var pattern = DishStationPatternContent.Strategy.PatternId;
+        var knowledge = patternKnowledge.For(pattern);
+        if (knowledge.Has(PatternKnowledgeMilestone.Named))
+        {
+            commandFeedback = "The Strategy name is already recorded with your evidence.";
+            UpdateWindowTitle();
+            return;
+        }
+        try
+        {
+            patternKnowledge = PatternNamingService.RecordReflection(patternKnowledge, DishStationPatternContent.Strategy);
+            commandFeedback = "Strategy Pattern named from your copied and fitted routing evidence.";
+            SaveCareer();
+        }
+        catch (InvalidOperationException error)
+        {
+            commandFeedback = error.Message;
+        }
         UpdateWindowTitle();
     }
 
@@ -2034,6 +2059,11 @@ public sealed class DishStationGame : Game
     {
         var knowledge = patternKnowledge.For(DishStationPatternContent.Strategy.PatternId);
         var view = PatternCodexPresenter.Present(DishStationPatternContent.Strategy, knowledge);
+        if (view.Named is { } named)
+        {
+            DrawNamedPatternCodex(view, named);
+            return;
+        }
         DrawPanel(48, 48, 928, 504, new Color(14, 29, 39, 252), Color.MediumPurple);
         PixelFont.Draw(spriteBatch!, pixel!, "PATTERN CODEX  •  LIVED", 72, 67, 1, Color.MediumPurple);
         PixelFont.Draw(spriteBatch!, pixel!, view.Title, 72, 94, 2, Color.LightSkyBlue);
@@ -2052,9 +2082,58 @@ public sealed class DishStationGame : Game
             PixelFont.Draw(spriteBatch!, pixel!, $"CONSEQUENCE  {evidence.Consequence}", 92, y + 99, 1, Color.Goldenrod, 116);
             y += 142;
         }
-        PixelFont.Draw(spriteBatch!, pixel!, "THIS PAGE STARTS WITH WHAT YOU DID. THE CONVENTIONAL NAME COMES AFTER REFLECTION.",
-            72, 486, 1, Color.LightGray, 125);
+        PixelFont.Draw(spriteBatch!, pixel!, view.ReflectionPrompt, 72, 474, 1, Color.LightGray, 108);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.PatternCodexReflect)}  {view.ReflectionAction}",
+            72, 520, 1, Color.LightGreen, 72);
         PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.PatternCodexClose)} CLOSE", 824, 520, 1, Color.LightGray, 18);
+    }
+
+    private void DrawNamedPatternCodex(PatternCodexView view, PatternCodexNamedView named)
+    {
+        DrawPanel(48, 36, 928, 528, new Color(14, 29, 39, 252), Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, $"PATTERN CODEX  •  {named.Category}", 72, 55, 1, Color.MediumPurple);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Title, 72, 80, 2, Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Status, 72, 113, 1, Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, view.EvidenceSummary, 530, 113, 1, Color.LightGray, 62);
+
+        DrawPanel(72, 137, 880, 58, new Color(24, 43, 54, 245), Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "INTENT", 88, 151, 1, Color.LightSkyBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, named.Intent, 166, 151, 1, Color.White, 126);
+
+        DrawPanel(72, 207, 424, 218, new Color(24, 43, 54, 245), Color.CornflowerBlue);
+        PixelFont.Draw(spriteBatch!, pixel!, "STRUCTURE", 88, 222, 2, Color.CornflowerBlue);
+        var structureY = 257f;
+        foreach (var item in named.Structure)
+        {
+            PixelFont.Draw(spriteBatch!, pixel!, $"• {item}", 88, structureY, 1, Color.White, 62);
+            structureY += 48;
+        }
+
+        DrawPanel(508, 207, 444, 116, new Color(24, 43, 54, 245), Color.LightGreen);
+        PixelFont.Draw(spriteBatch!, pixel!, "BENEFITS", 524, 222, 2, Color.LightGreen);
+        var benefitY = 256f;
+        foreach (var item in named.Benefits)
+        {
+            PixelFont.Draw(spriteBatch!, pixel!, $"+ {item}", 524, benefitY, 1, Color.White, 65);
+            benefitY += 34;
+        }
+
+        DrawPanel(508, 335, 444, 126, new Color(24, 43, 54, 245), Color.Goldenrod);
+        PixelFont.Draw(spriteBatch!, pixel!, "TRADEOFFS", 524, 350, 2, Color.Goldenrod);
+        var costY = 384f;
+        foreach (var item in named.Costs)
+        {
+            PixelFont.Draw(spriteBatch!, pixel!, $"- {item}", 524, costY, 1, Color.White, 70);
+            costY += 36;
+        }
+
+        DrawPanel(72, 473, 880, 58, new Color(18, 35, 46, 245), Color.MediumPurple);
+        PixelFont.Draw(spriteBatch!, pixel!, "YOUR EVIDENCE", 88, 486, 1, Color.MediumPurple);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Evidence[0].Consequence, 198, 486, 1, Color.LightGray, 92);
+        PixelFont.Draw(spriteBatch!, pixel!, view.Evidence[1].Consequence, 198, 510, 1, Color.LightGreen, 92);
+        PixelFont.Draw(spriteBatch!, pixel!, "THE NAME DESCRIBES THE SHAPE. YOUR TRIALS EXPLAIN WHY IT MATTERS.",
+            72, 540, 1, Color.LightGray, 105);
+        PixelFont.Draw(spriteBatch!, pixel!, $"{Binding(GameInputAction.PatternCodexClose)} CLOSE", 824, 544, 1, Color.LightGray, 18);
     }
 
     private void DrawPlacementTools(DishStationSnapshot snapshot)
@@ -2919,6 +2998,7 @@ internal enum ClientControl
     TwoStationRoutingRunTrial,
     TwoStationRoutingClose,
     TogglePatternCodex,
+    PatternCodexReflect,
     PatternCodexClose,
     ToggleGodMode,
     GodAddDirty,

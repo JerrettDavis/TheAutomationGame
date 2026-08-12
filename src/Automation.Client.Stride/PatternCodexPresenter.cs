@@ -16,7 +16,17 @@ public sealed record PatternCodexView(
     string Status,
     string NameStatus,
     string EvidenceSummary,
-    IReadOnlyList<PatternCodexEvidenceView> Evidence);
+    string ReflectionPrompt,
+    string ReflectionAction,
+    IReadOnlyList<PatternCodexEvidenceView> Evidence,
+    PatternCodexNamedView? Named);
+
+public sealed record PatternCodexNamedView(
+    string Category,
+    string Intent,
+    IReadOnlyList<string> Structure,
+    IReadOnlyList<string> Benefits,
+    IReadOnlyList<string> Costs);
 
 public static class PatternCodexPresenter
 {
@@ -31,10 +41,16 @@ public static class PatternCodexPresenter
             item.Milestone.ToString().ToUpperInvariant(), item.Place.ToUpperInvariant(), item.Problem.ToUpperInvariant(),
             item.SolutionShape.ToUpperInvariant(), item.Consequence.ToUpperInvariant(), item.ReplayReference.ToUpperInvariant())).ToArray();
         return new(
-            named ? definition.ExternalCatalogId.ToUpperInvariant() : definition.PreNameTitle,
-            knowledge.Has(PatternKnowledgeMilestone.Recognized) ? "RECOGNIZED FROM YOUR WORK" : "MORE EVIDENCE NEEDED",
-            named ? $"CONVENTIONAL NAME  {definition.ExternalCatalogId.ToUpperInvariant()}" : "CONVENTIONAL NAME  NOT RECORDED",
-            $"{evidence.Length} RESTAURANT RECORDS  •  {string.Join(" / ", knowledge.Milestones.Select(item => item.ToString().ToUpperInvariant()))}",
-            evidence);
+            named ? definition.Naming.DisplayTitle : definition.PreNameTitle,
+            named ? "NAMED FROM YOUR LIVED WORK" : knowledge.Has(PatternKnowledgeMilestone.Recognized) ? "RECOGNIZED FROM YOUR WORK" : "MORE EVIDENCE NEEDED",
+            named ? $"CONVENTIONAL NAME  {definition.Naming.ConventionalName}" : "CONVENTIONAL NAME  NOT RECORDED",
+            named
+                ? $"{evidence.Length} RESTAURANT RECORDS  •  RECOGNIZED / NAMED"
+                : $"{evidence.Length} RESTAURANT RECORDS  •  {string.Join(" / ", knowledge.Milestones.Select(item => item.ToString().ToUpperInvariant()))}",
+            definition.Naming.ReflectionPrompt,
+            definition.Naming.ReflectionAcknowledgement,
+            evidence,
+            named ? new(definition.Category.ToUpperInvariant(), definition.Naming.Intent,
+                definition.Naming.Structure, definition.Naming.Benefits, definition.Naming.Costs) : null);
     }
 }
