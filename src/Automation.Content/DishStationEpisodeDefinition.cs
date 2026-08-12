@@ -195,3 +195,18 @@ public static class DishStationFirstHoursContent
         return result.ToString();
     }
 }
+
+public static class DishStationTwoStationsContent
+{
+    public const string ScenarioId = "scenario.restaurant.two-stations";
+    public const string QuestId = "quest.restaurant.two-stations.one-problem";
+
+    public static ScenarioContentDefinition Scenario { get; } = DishStationFirstHoursContent.Catalog.Scenarios
+        .Single(scenario => scenario.Id.Value == ScenarioId);
+
+    public static TwoStationRoutingConfiguration Configuration { get; } = Scenario.TwoStationRouting
+        ?? throw new InvalidOperationException($"Two-station scenario '{ScenarioId}' has no two_station_routing configuration.");
+
+    public static QuestContentDefinition Quest { get; } = DishStationFirstHoursContent.Catalog.Quests
+        .Single(quest => quest.Id.Value == QuestId);
+}

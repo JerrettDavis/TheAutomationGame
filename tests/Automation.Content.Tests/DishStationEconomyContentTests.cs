@@ -8,7 +8,8 @@ public sealed class DishStationEconomyContentTests
     [Fact]
     public void FirstShiftCompilesAuthoredEngineNeutralEconomyRates()
     {
-        var scenario = Assert.Single(ContentCompilerV1.CompileFile(ContentTestPaths.FirstShift).Scenarios);
+        var scenario = ContentCompilerV1.CompileFile(ContentTestPaths.FirstShift).Scenarios.Single(candidate =>
+            candidate.Id.Value == DishStationFirstHoursContent.ScenarioId);
 
         Assert.Equal(new DishStationEconomyConfiguration(120, 1, 3, 1, 35, 80, 120, 180), scenario.DishStation!.Economy);
     }
@@ -41,8 +42,9 @@ public sealed class DishStationEconomyContentTests
             "        service_shortage_downtime_cost: 80\n" +
             "        automation_incident_downtime_cost: 120\n" +
             "        flow_cell_investment_cost: 180\n";
-        var scenario = Assert.Single(ContentCompilerV1.Compile(
-            yaml.Replace(economy, "", StringComparison.Ordinal), "compatible.yaml").Scenarios);
+        var scenario = ContentCompilerV1.Compile(
+            yaml.Replace(economy, "", StringComparison.Ordinal), "compatible.yaml").Scenarios.Single(candidate =>
+            candidate.Id.Value == DishStationFirstHoursContent.ScenarioId);
 
         Assert.Equal(DishStationEconomyConfiguration.Default, scenario.DishStation!.Economy);
     }

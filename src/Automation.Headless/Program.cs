@@ -219,6 +219,30 @@ if (args.Contains("--economy-compare-demo", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--two-station-demo", StringComparer.OrdinalIgnoreCase))
+{
+    var seedIndex = Array.FindIndex(args, argument => string.Equals(argument, "--seed", StringComparison.OrdinalIgnoreCase));
+    var seed = seedIndex >= 0 && seedIndex + 1 < args.Length && int.TryParse(args[seedIndex + 1], out var parsedSeed)
+        ? parsedSeed
+        : 42;
+    var routing = new TwoStationRoutingWorld(seed, DishStationTwoStationsContent.Configuration);
+    routing.ExecuteNow(new CopyRoutingStationPolicyCommand(routing.Tick,
+        DishRoutingStationId.MainDishRoom, DishRoutingStationId.PatioServiceStation));
+    routing.ExecuteNow(new RunTwoStationRoutingTrialCommand(routing.Tick));
+    var copied = routing.Snapshot().LatestTrial!;
+    Console.WriteLine($"two-station quest={DishStationTwoStationsContent.Quest.Narrative!.Title} seed={copied.Seed} horizon={copied.HorizonTicks} copyCount={routing.Snapshot().CopyCount}");
+    PrintRoutingTrial("copied", copied);
+
+    routing.ExecuteNow(new SetRoutingStationPolicyCommand(routing.Tick,
+        DishRoutingStationId.PatioServiceStation, ProcessRoutingPolicy.PlatesFirst));
+    routing.ExecuteNow(new RunTwoStationRoutingTrialCommand(routing.Tick));
+    var fitted = routing.Snapshot().LatestTrial!;
+    PrintRoutingTrial("fitted", fitted);
+    var replay = TwoStationRoutingWorld.Restore(routing.CreateReplaySave()).Snapshot();
+    Console.WriteLine($"two-station outcome improved={fitted.TotalShortages < copied.TotalShortages} bothSupplied={fitted.TotalShortages == 0} sameDecisionSlot=True replayTrials={replay.Trials.Count} discovery={DishStationTwoStationsContent.Quest.Narrative.Discovery}");
+    return;
+}
+
 var options = HeadlessOptions.Parse(args, DishStationFirstHoursContent.ScenarioConfiguration);
 if (options.ShowHelp)
 {
@@ -373,6 +397,13 @@ static string Cell(FloorCell cell) => $"{cell.X},{cell.Y}";
 static void PrintEconomyChoice(DishStationEconomyChoiceResult choice) =>
     Console.WriteLine($"  choice={choice.Choice} viable={choice.Viable} layout={choice.Layout} completed={choice.CompletedDishes} shortages={choice.ServiceShortages} workerActions={choice.Economy.WorkerActions} workerTravel={choice.WorkerTravelSteps} value={choice.Economy.ThroughputValue} labor={choice.Economy.LaborCost} staffing={choice.Economy.StaffingCost} waste={choice.Economy.WasteCost} downtime={choice.Economy.DowntimeCost} investment={choice.Economy.InvestmentCost} total={choice.Economy.TotalCost} net={choice.Economy.NetValue}");
 
+static void PrintRoutingTrial(string label, TwoStationRoutingTrialResult trial)
+{
+    Console.WriteLine($"  trial={label} sequence={trial.Sequence} completed={trial.TotalCompleted} shortages={trial.TotalShortages} net={trial.TotalNetValue}");
+    foreach (var station in trial.Stations)
+        Console.WriteLine($"    station={station.Station} name={station.DisplayName} demand={station.DemandKind} policy={station.Policy} completed={station.CompletedDishes} shortages={station.ServiceShortages} actions={station.WorkerActions} travel={station.WorkerTravelSteps} value={station.ThroughputValue} cost={station.TotalCost} net={station.NetValue}");
+}
+
 internal sealed record HeadlessOptions(
     int Seed,
     int Ticks,
@@ -406,6 +437,7 @@ internal sealed record HeadlessOptions(
           --automation-editor-demo      create, apply, trace, refine, and replay one player washer rule
           --automation-compare-demo     compare baseline/variant rules in identical authoritative trials
           --economy-compare-demo        compare staffed linear/flow-cell choices over the same 120-tick shift
+          --two-station-demo            copy, refit, and compare routing policies across two restaurant stations
           --named-seed NAME             required by templates with declared variable fields
           --parameter NAME=VALUE        supply a template parameter; repeat for additional parameters
           --initial-plates N            initial dirty plates

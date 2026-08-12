@@ -30,6 +30,9 @@ public static partial class ContentCompilerV1
     private static readonly HashSet<string> KnowledgeTokens = new(StringComparer.Ordinal) { "none", "happy-path", "rush-aware", "fully-documented" };
     private static readonly HashSet<string> AutomationTokens = new(StringComparer.Ordinal) { "off", "reported-ready-only", "corroborated-ready" };
     private static readonly HashSet<string> LayoutTokens = new(StringComparer.Ordinal) { "linear", "u-shaped-cell" };
+    private static readonly HashSet<string> RoutingStationTokens = new(StringComparer.Ordinal) { "main-dish-room", "patio-service-station" };
+    private static readonly HashSet<string> RoutingPolicyTokens = new(StringComparer.Ordinal) { "captured-order", "plates-first", "glasses-first" };
+    private static readonly HashSet<string> RoutingDemandTokens = new(StringComparer.Ordinal) { "plate", "glass" };
     private static readonly HashSet<string> ManualActionTokens = new(StringComparer.Ordinal) { "scrape", "rack", "unload", "dry-and-restock" };
     private static readonly HashSet<string> BufferOrderingTokens = new(StringComparer.Ordinal) { "fifo" };
     private static readonly HashSet<string> InspectionObservationTokens = new(StringComparer.Ordinal) { "state-counts" };
@@ -87,13 +90,18 @@ public static partial class ContentCompilerV1
             item.Steps!.Select(step => new ProcessStepContentDefinition(step.Id!, Id(step.Workstation))).ToImmutableArray(),
             (item.Routes ?? []).Select(route => new ProcessRouteContentDefinition(route.From!, route.To!)).ToImmutableArray(),
             item.AllowCycles)).OrderBy(item => item.Id.Value).ToImmutableArray();
-        var scenarios = raw.Scenarios.Select(item => new ScenarioContentDefinition(Id(item.Id), Id(item.Industry), Id(item.Facility),
-            Ids(item.Processes), Ids(item.Items), Ids(item.Characters), item.Seed!,
-            item.Narrative is null ? null : new ScenarioNarrativeContentDefinition(
-                item.Narrative.ChapterTitle!,
-                item.Narrative.Briefing.Select(page => new ScenarioBriefingPageContentDefinition(page.Title!, page.Body!)).ToImmutableArray(),
-                item.Narrative.DebriefSummary!, item.Narrative.DebriefQuestions.ToImmutableArray()),
-            item.DishStation is null ? null : CompileDishStation(item.DishStation))).OrderBy(item => item.Id.Value).ToImmutableArray();
+        var scenarios = raw.Scenarios.Select(item =>
+        {
+            var dishStation = item.DishStation is null ? null : CompileDishStation(item.DishStation);
+            return new ScenarioContentDefinition(Id(item.Id), Id(item.Industry), Id(item.Facility),
+                Ids(item.Processes), Ids(item.Items), Ids(item.Characters), item.Seed!,
+                item.Narrative is null ? null : new ScenarioNarrativeContentDefinition(
+                    item.Narrative.ChapterTitle!,
+                    item.Narrative.Briefing.Select(page => new ScenarioBriefingPageContentDefinition(page.Title!, page.Body!)).ToImmutableArray(),
+                    item.Narrative.DebriefSummary!, item.Narrative.DebriefQuestions.ToImmutableArray()),
+                dishStation,
+                item.TwoStationRouting is null ? null : CompileTwoStationRouting(item.TwoStationRouting, dishStation!));
+        }).OrderBy(item => item.Id.Value).ToImmutableArray();
         var quests = raw.Quests.Select(item => new QuestContentDefinition(Id(item.Id), Id(item.Scenario), Ids(item.Participants), item.Objective!,
             new(item.Completion!.Metric!, item.Completion.Operator!, item.Completion.Value!.Value),
             item.Narrative is null ? null : new QuestNarrativeContentDefinition(
@@ -256,6 +264,24 @@ public static partial class ContentCompilerV1
                     RequireNonNegative(economy.AutomationIncidentDowntimeCost, "dish_station.economy.automation_incident_downtime_cost");
                     RequireNonNegative(economy.FlowCellInvestmentCost, "dish_station.economy.flow_cell_investment_cost");
                 }
+            }
+            if (item.TwoStationRouting is { } routing)
+            {
+                if (item.DishStation is null) Add("two_station_routing", "Two-station routing requires a dish_station base configuration.");
+                RequirePositive(routing.TrialHorizonTicks, "two_station_routing.trial_horizon_ticks");
+                if (routing.Stations is null || routing.Stations.Count != 2)
+                    Add("two_station_routing.stations", "Exactly two routing stations are required.");
+                else for (var index = 0; index < routing.Stations.Count; index++)
+                {
+                    var station = routing.Stations[index];
+                    RequireToken(station.Id, $"two_station_routing.stations[{index}].id", RoutingStationTokens);
+                    Require(station.DisplayName, $"two_station_routing.stations[{index}].display_name", "Routing station display name is required.");
+                    RequireCounts(station.InitialDirty, $"two_station_routing.stations[{index}].initial_dirty");
+                    RequireToken(station.DemandKind, $"two_station_routing.stations[{index}].demand_kind", RoutingDemandTokens);
+                    RequireToken(station.InitialPolicy, $"two_station_routing.stations[{index}].initial_policy", RoutingPolicyTokens);
+                }
+                if (routing.Stations?.Select(station => station.Id).Where(id => id is not null).Distinct(StringComparer.Ordinal).Count() != routing.Stations?.Count)
+                    Add("two_station_routing.stations", "Routing station IDs must be unique.");
             }
         });
         ValidateDefinitions(raw.Quests, "quests", "quest.", source, diagnostics, item =>
@@ -651,6 +677,12 @@ public static partial class ContentCompilerV1
             }
             if (item.DishStation is { } scenario)
                 text.AppendLine($"dish-station|{Counts(scenario.InitialDirty)}|{Counts(scenario.InitialAvailable)}|{scenario.ArrivalIntervalTicks}|{scenario.GlassEveryArrivals}|{scenario.RackCapacity}|{scenario.WasherCycleTicks}|{scenario.WorkerActionIntervalTicks}|{scenario.FlowCellWorkerActionIntervalTicks}|{scenario.StickyReadyFaultAfterAutomatedStarts}|{scenario.StickyReadyFaultPermillePerStart}|{DishKindToken(scenario.DemandKind)}|{scenario.DemandIntervalTicks}|{scenario.InitialRushEnabled}|{scenario.InitialNewHireEnabled}|{KnowledgeToken(scenario.InitialNewHireSpecification)}|{AutomationToken(scenario.InitialAutomationPolicy)}|{LayoutToken(scenario.InitialLayout)}|economy:{scenario.Economy.CompletedDishValue},{scenario.Economy.LaborTicksPerWorkAction},{scenario.Economy.LaborCostPerTick},{scenario.Economy.StaffingCostPerEnabledTick},{scenario.Economy.TrayReworkCost},{scenario.Economy.ServiceShortageDowntimeCost},{scenario.Economy.AutomationIncidentDowntimeCost},{scenario.Economy.FlowCellInvestmentCost}");
+            if (item.TwoStationRouting is { } routing)
+            {
+                text.AppendLine($"two-station-routing|{routing.TrialHorizonTicks}");
+                foreach (var station in routing.Stations.OrderBy(station => station.Id))
+                    text.AppendLine($"routing-station|{RoutingStationToken(station.Id)}|{Encode(station.DisplayName)}|{Counts(station.InitialDirty)}|{DishKindToken(station.DemandKind)}|{RoutingPolicyToken(station.InitialPolicy)}");
+            }
         }
         foreach (var item in quests)
         {
@@ -841,6 +873,53 @@ public static partial class ContentCompilerV1
                 scenario.Economy.AutomationIncidentDowntimeCost!.Value,
                 scenario.Economy.FlowCellInvestmentCost!.Value),
     }.Validate();
+
+    private static TwoStationRoutingConfiguration CompileTwoStationRouting(
+        RawTwoStationRouting routing,
+        DishStationScenarioConfiguration baseScenario) => new TwoStationRoutingConfiguration(
+        baseScenario,
+        routing.Stations.Select(station => new DishRoutingStationProfile(
+            RoutingStation(station.Id!),
+            station.DisplayName!,
+            new(station.InitialDirty!.Plates!.Value, station.InitialDirty.Glasses!.Value, station.InitialDirty.Trays!.Value),
+            station.DemandKind switch
+            {
+                "plate" => DishKind.Plate,
+                "glass" => DishKind.Glass,
+                _ => throw new UnreachableException(),
+            },
+            RoutingPolicy(station.InitialPolicy!))).ToImmutableArray(),
+        routing.TrialHorizonTicks!.Value).Validate();
+
+    private static DishRoutingStationId RoutingStation(string token) => token switch
+    {
+        "main-dish-room" => DishRoutingStationId.MainDishRoom,
+        "patio-service-station" => DishRoutingStationId.PatioServiceStation,
+        _ => throw new UnreachableException(),
+    };
+
+    private static string RoutingStationToken(DishRoutingStationId station) => station switch
+    {
+        DishRoutingStationId.MainDishRoom => "main-dish-room",
+        DishRoutingStationId.PatioServiceStation => "patio-service-station",
+        _ => throw new UnreachableException(),
+    };
+
+    private static ProcessRoutingPolicy RoutingPolicy(string token) => token switch
+    {
+        "captured-order" => ProcessRoutingPolicy.CapturedOrder,
+        "plates-first" => ProcessRoutingPolicy.PlatesFirst,
+        "glasses-first" => ProcessRoutingPolicy.GlassesFirst,
+        _ => throw new UnreachableException(),
+    };
+
+    private static string RoutingPolicyToken(ProcessRoutingPolicy policy) => policy switch
+    {
+        ProcessRoutingPolicy.CapturedOrder => "captured-order",
+        ProcessRoutingPolicy.PlatesFirst => "plates-first",
+        ProcessRoutingPolicy.GlassesFirst => "glasses-first",
+        _ => throw new UnreachableException(),
+    };
     private static void ThrowIfAny(List<ContentDiagnostic> diagnostics)
     {
         if (diagnostics.Count > 0) throw new ContentCompilationException(diagnostics);
@@ -907,6 +986,7 @@ public static partial class ContentCompilerV1
         public string? Seed { get; set; }
         public RawScenarioNarrative? Narrative { get; set; }
         public RawDishStationScenario? DishStation { get; set; }
+        public RawTwoStationRouting? TwoStationRouting { get; set; }
     }
     private sealed class RawScenarioNarrative
     {
@@ -947,6 +1027,19 @@ public static partial class ContentCompilerV1
         public int? ServiceShortageDowntimeCost { get; set; }
         public int? AutomationIncidentDowntimeCost { get; set; }
         public int? FlowCellInvestmentCost { get; set; }
+    }
+    private sealed class RawTwoStationRouting
+    {
+        public int? TrialHorizonTicks { get; set; }
+        public List<RawRoutingStation> Stations { get; set; } = [];
+    }
+    private sealed class RawRoutingStation
+    {
+        public string? Id { get; set; }
+        public string? DisplayName { get; set; }
+        public RawDishCounts? InitialDirty { get; set; }
+        public string? DemandKind { get; set; }
+        public string? InitialPolicy { get; set; }
     }
     private sealed class RawDishCounts { public int? Plates { get; set; } public int? Glasses { get; set; } public int? Trays { get; set; } }
     private sealed class RawQuest : RawDefinition

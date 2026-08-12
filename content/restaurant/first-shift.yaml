@@ -193,6 +193,57 @@ scenarios:
         automation_incident_downtime_cost: 120
         flow_cell_investment_cost: 180
 
+  - id: scenario.restaurant.two-stations
+    industry: industry.restaurant
+    facility: facility.restaurant.rossis.back-of-house
+    processes: [process.restaurant.dishwashing.first-shift]
+    items: [item.restaurant.dishware]
+    characters: [character.restaurant.avery-chen, character.restaurant.jules-martin, character.restaurant.tessa-brooks]
+    seed: two-stations-v1
+    dish_station:
+      initial_dirty:
+        plates: 1
+        glasses: 1
+        trays: 0
+      initial_available:
+        plates: 0
+        glasses: 0
+        trays: 0
+      arrival_interval_ticks: 1000
+      glass_every_arrivals: 2
+      rack_capacity: 4
+      washer_cycle_ticks: 1
+      worker_action_interval_ticks: 1
+      flow_cell_worker_action_interval_ticks: 1
+      sticky_ready_fault_after_automated_starts: 0
+      sticky_ready_fault_permille_per_start: 0
+      demand_kind: glass
+      demand_interval_ticks: 5
+      initial_rush_enabled: false
+      initial_new_hire_enabled: false
+      initial_new_hire_knowledge: none
+      initial_automation_policy: off
+      initial_layout: linear
+    two_station_routing:
+      trial_horizon_ticks: 5
+      stations:
+        - id: main-dish-room
+          display_name: Main Dish Room
+          initial_dirty:
+            plates: 1
+            glasses: 1
+            trays: 0
+          demand_kind: glass
+          initial_policy: glasses-first
+        - id: patio-service-station
+          display_name: Patio Service Station
+          initial_dirty:
+            plates: 1
+            glasses: 1
+            trays: 0
+          demand_kind: plate
+          initial_policy: glasses-first
+
 quests:
   - id: quest.restaurant.first-shift.clock-in
     scenario: scenario.restaurant.first-shift
@@ -419,3 +470,29 @@ quests:
         - id: episode-complete
           text: FIRST SHIFT COMPLETE - OPEN AVERY'S REPORT WITH {binding}
           input_action: shift-report-toggle
+
+  - id: quest.restaurant.two-stations.one-problem
+    scenario: scenario.restaurant.two-stations
+    participants: [character.restaurant.avery-chen, character.restaurant.jules-martin, character.restaurant.tessa-brooks]
+    objective: Keep the main dish room and patio service station supplied by fitting each station's routing choice to its observed demand.
+    completion:
+      metric: service.shortage.count
+      operator: equal
+      value: 0
+    narrative:
+      runtime_id: two-stations-one-problem
+      sequence: 1
+      title: TWO STATIONS, ONE PROBLEM
+      situation: Avery opens the patio station by copying the main dish room's glass-first routing. The familiar choice gets Jules moving quickly, but Tessa's patio service is waiting for plates.
+      discovery: Reusing one routing choice saves setup work, but each station still needs a policy that fits its actual demand.
+      unlock_rationale: Both stations met their service request after using the same routing decision slot with different choices.
+      reward:
+        experience: 400
+        capability: capability.routing-policy-comparison
+      steps:
+        - id: run-copied-routing
+          text: RUN BOTH STATIONS WITH THE COPIED ROUTING CHOICE
+        - id: fit-patio-routing
+          text: CHANGE THE PATIO POLICY IN THE SAME DECISION SLOT
+        - id: rerun-two-stations
+          text: RERUN BOTH STATIONS AND COMPARE THE SERVICE RESULT

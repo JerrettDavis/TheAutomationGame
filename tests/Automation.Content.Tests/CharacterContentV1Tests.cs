@@ -36,7 +36,7 @@ public sealed class CharacterContentV1Tests
     public void EveryFirstShiftQuestUsesIntendedScenarioRosterParticipants()
     {
         var catalog = ContentCompilerV1.CompileFile(ContentTestPaths.FirstShift);
-        var scenario = Assert.Single(catalog.Scenarios);
+        var scenario = catalog.Scenarios.Single(candidate => candidate.Id.Value == DishStationFirstHoursContent.ScenarioId);
         var expected = new Dictionary<string, string[]>
         {
             ["clock-in"] = ["character.restaurant.avery-chen", "character.restaurant.ray-morales"],
@@ -50,7 +50,7 @@ public sealed class CharacterContentV1Tests
         };
 
         Assert.Equal(5, scenario.Characters.Length);
-        foreach (var quest in catalog.Quests)
+        foreach (var quest in catalog.Quests.Where(candidate => candidate.Scenario == scenario.Id))
         {
             var runtimeId = quest.Narrative!.RuntimeId;
             Assert.Equal(expected[runtimeId], quest.Participants.Select(participant => participant.Value));

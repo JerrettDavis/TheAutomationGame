@@ -140,7 +140,8 @@ public sealed record ScenarioContentDefinition(
     ImmutableArray<ContentId> Characters,
     string Seed,
     ScenarioNarrativeContentDefinition? Narrative,
-    DishStationScenarioConfiguration? DishStation);
+    DishStationScenarioConfiguration? DishStation,
+    TwoStationRoutingConfiguration? TwoStationRouting);
 
 public sealed record QuestCompletionContentDefinition(string Metric, string Operator, double Value);
 

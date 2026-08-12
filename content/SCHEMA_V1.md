@@ -34,7 +34,7 @@ Role and presentation references use `role.` and `presentation.` respectively; t
 - `workstations`: `id`, `industry`, `display_name`, nonempty `accepted_items`, `input_state`, `output_state`, `presentation`, and `presentation_fallback`.
 - `processes`: `id`, `industry`, nonempty unique `steps`, `routes`, optional `allow_cycles` (default `false`).
 - `characters`: `id`, `industry`, `display_name`, `role`, nonempty `motivation`, nonempty stable-ID `known_facts`, `blind_spots`, and `authority`, directional `relationships`, `presentation`, and `presentation_fallback`.
-- `scenarios`: `id`, `industry`, `facility`, nonempty `processes`, `items`, `characters`, and named deterministic `seed`. A scenario may carry the optional complete `narrative` block and a dish-station scenario may carry the complete `dish_station` runtime block below.
+- `scenarios`: `id`, `industry`, `facility`, nonempty `processes`, `items`, `characters`, and named deterministic `seed`. A scenario may carry the optional complete `narrative` block, a dish-station scenario may carry the complete `dish_station` runtime block, and the concrete S030 restaurant episode may carry `two_station_routing` as described below.
 - `quests`: `id`, `scenario`, nonempty unique character `participants`, outcome-oriented `objective`, and one numeric `completion` condition. A quest may also carry the complete optional `narrative` block described below.
 - `incidents`: `id`, `industry`, `display_name`, nonnegative `trigger_at_tick`, `scope`, immediate `observable`, discoverable `evidence`, `recovery`, and exactly one typed effect block.
 
@@ -147,6 +147,30 @@ Counts and the sticky-ready threshold must be non-negative. Timing and capacity 
 S029 adds the optional complete `economy` block. `completed_dish_value` and `labor_ticks_per_work_action` are positive integers; all rates and costs are nonnegative integers. If the block is omitted, the engine-neutral first-shift defaults preserve compatibility. If present, every field is required. These authored values are rates only: the authoritative world derives labor actions, staffed ticks, rework, shortages, automation incidents, completed throughput, and flow-cell purchase state from commands and ticks, then applies the rates without reading YAML.
 
 The compiler produces a validated, engine-neutral `DishStationScenarioConfiguration` directly from this block. Simulation never reads YAML. Production composition must provide an explicit compiled configuration when creating a world; resolved configurations remain part of replay/save data. Headless command-line flags are runtime overrides over these authored defaults rather than a second default scenario.
+
+## Two-station routing episode
+
+S030 adds one concrete optional `two_station_routing` block to a scenario that already has a complete `dish_station` base configuration:
+
+```yaml
+two_station_routing:
+  trial_horizon_ticks: 5
+  stations:
+    - id: main-dish-room
+      display_name: Main Dish Room
+      initial_dirty: { plates: 1, glasses: 1, trays: 0 }
+      demand_kind: glass
+      initial_policy: glasses-first
+    - id: patio-service-station
+      display_name: Patio Service Station
+      initial_dirty: { plates: 1, glasses: 1, trays: 0 }
+      demand_kind: plate
+      initial_policy: glasses-first
+```
+
+Exactly the `main-dish-room` and `patio-service-station` IDs are supported in this episode. Their IDs must be unique; each station requires a display name, nonnegative initial counts with at least one plate or glass, a `plate` or `glass` demand kind, and a `captured-order`, `plates-first`, or `glasses-first` initial policy. The trial horizon is positive and bounded by the engine-neutral configuration.
+
+This is deliberately not a generic pattern or strategy schema. Content authors the two restaurant situations and their starting choices; `TwoStationRoutingWorld` owns policy changes, copy history, deterministic trials, metrics, and replay. S031/S032 may record and name the reusable concept only after this lived episode exists.
 
 ## Incident definitions
 

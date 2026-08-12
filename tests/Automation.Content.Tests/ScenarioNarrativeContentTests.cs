@@ -8,7 +8,8 @@ public sealed class ScenarioNarrativeContentTests
     public void ProductionFirstShiftDefinesCompleteBriefingAndDebriefWhileMinimalRemainsCompatible()
     {
         var production = ContentCompilerV1.CompileFile(ContentTestPaths.FirstShift);
-        var chapter = Assert.Single(production.Scenarios).Narrative;
+        var chapter = production.Scenarios.Single(scenario =>
+            scenario.Id.Value == DishStationFirstHoursContent.ScenarioId).Narrative;
 
         Assert.NotNull(chapter);
         Assert.Equal("ROSSI'S / FIRST SHIFT", chapter.ChapterTitle);
