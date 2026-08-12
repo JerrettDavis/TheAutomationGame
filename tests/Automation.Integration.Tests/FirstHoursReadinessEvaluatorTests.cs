@@ -127,6 +127,43 @@ public sealed class FirstHoursReadinessEvaluatorTests
     }
 
     [Fact]
+    public void EvaluatorRejectsGuidanceMismatchIncompleteQuestSetAndConflictingIssueOwnership()
+    {
+        var guided = Session("human-guided", FirstHoursParticipantKind.Human, true,
+            GuidanceMode.Guided, strong: true, strategy: true);
+        var guidanceMismatch = guided with
+        {
+            Observation = guided.Observation with { GuidanceMode = GuidanceMode.Contextual },
+        };
+        Assert.Throws<InvalidDataException>(() => FirstHoursReadinessEvaluator.Evaluate([guidanceMismatch]));
+
+        var incomplete = guided with
+        {
+            CompletionEvidence = guided.CompletionEvidence! with
+            {
+                Quests = guided.CompletionEvidence!.Quests[..^1],
+            },
+        };
+        Assert.Throws<InvalidDataException>(() => FirstHoursReadinessEvaluator.Evaluate([incomplete]));
+
+        var issue = new FirstHoursReadinessIssue("ui-focus", "Focus was lost.", "UX/S036", FirstHoursIssueDisposition.Backlog);
+        var first = guided with
+        {
+            Observation = guided.Observation with { CriticalIssues = [issue] },
+        };
+        var second = Session("human-contextual", FirstHoursParticipantKind.Human, true,
+            GuidanceMode.Contextual, strong: true, strategy: true) with
+        {
+            Observation = Session("human-contextual", FirstHoursParticipantKind.Human, true,
+                    GuidanceMode.Contextual, strong: true, strategy: true).Observation with
+            {
+                CriticalIssues = [issue with { Owner = "Different owner" }],
+            },
+        };
+        Assert.Throws<InvalidDataException>(() => FirstHoursReadinessEvaluator.Evaluate([first, second]));
+    }
+
+    [Fact]
     public void SyntheticCohortRoundTripsThroughDirectoriesWithoutPassingHumanGate()
     {
         var root = Path.Combine(Path.GetTempPath(), $"automation-readiness-synthetic-{Guid.NewGuid():N}");
@@ -135,13 +172,14 @@ public sealed class FirstHoursReadinessEvaluatorTests
             for (var index = 1; index <= 5; index++)
             {
                 var id = $"synthetic-{index}";
+                var guidance = index == 1 ? GuidanceMode.Contextual : GuidanceMode.Guided;
                 var directory = Path.Combine(root, id);
                 FirstHoursFacilitatorObservationStore.SaveFileAtomic(
                     Path.Combine(directory, "facilitator-observation.json"),
-                    Observation(id, FirstHoursParticipantKind.SyntheticFixture, true, true, true));
+                    Observation(id, FirstHoursParticipantKind.SyntheticFixture, true, true, true, guidance: guidance));
                 FirstHoursPlaytestEvidenceStore.SaveFileAtomic(
                     Path.Combine(directory, "first-hours-evidence.json"),
-                    Evidence(id, index == 1 ? GuidanceMode.Contextual : GuidanceMode.Guided, 60));
+                    Evidence(id, guidance, 60));
             }
 
             var loaded = FirstHoursReadinessCohort.LoadDirectory(root);
@@ -195,7 +233,7 @@ public sealed class FirstHoursReadinessEvaluatorTests
         bool actionHelp = false,
         string? blocker = null,
         FirstHoursReadinessIssue[]? issues = null) =>
-        new(id, Observation(id, kind, novice, strong, strategy, actionHelp, blocker, issues), Evidence(id, guidance, 60));
+        new(id, Observation(id, kind, novice, strong, strategy, actionHelp, blocker, issues, guidance), Evidence(id, guidance, 60));
 
     private static FirstHoursFacilitatorObservation Observation(
         string id,
@@ -205,9 +243,10 @@ public sealed class FirstHoursReadinessEvaluatorTests
         bool strategy,
         bool actionHelp = false,
         string? blocker = null,
-        FirstHoursReadinessIssue[]? issues = null) =>
+        FirstHoursReadinessIssue[]? issues = null,
+        GuidanceMode guidance = GuidanceMode.Guided) =>
         new(FirstHoursFacilitatorObservation.CurrentSchemaVersion, id,
-            new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero), kind, novice,
+            new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero), kind, guidance, novice,
             strong, strong, strong, strong, strong, strategy, actionHelp, blocker, issues ?? []);
 
     private static FirstHoursPlaytestEvidence Evidence(string id, GuidanceMode guidance, double wallMinutes) =>

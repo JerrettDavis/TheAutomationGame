@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Automation.Domain;
 
 namespace Automation.Persistence;
 
@@ -26,6 +27,7 @@ public sealed record FirstHoursFacilitatorObservation(
     string SessionId,
     DateTimeOffset RecordedAtUtc,
     FirstHoursParticipantKind ParticipantKind,
+    GuidanceMode GuidanceMode,
     bool VocabularyNovice,
     bool MovementDiscoveredWithoutCoaching,
     bool InteractionDiscoveredWithoutCoaching,
@@ -37,7 +39,7 @@ public sealed record FirstHoursFacilitatorObservation(
     string? PrimaryProgressionBlocker,
     FirstHoursReadinessIssue[] CriticalIssues)
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public FirstHoursFacilitatorObservation Validate()
     {
@@ -47,6 +49,7 @@ public sealed record FirstHoursFacilitatorObservation(
         if (RecordedAtUtc == default) throw new InvalidDataException("Facilitator observation requires a recorded UTC timestamp.");
         ArgumentNullException.ThrowIfNull(CriticalIssues);
         if (!Enum.IsDefined(ParticipantKind)) throw new InvalidDataException($"Unknown participant kind {ParticipantKind}.");
+        if (!Enum.IsDefined(GuidanceMode)) throw new InvalidDataException($"Unknown guidance mode {GuidanceMode}.");
 
         var issueCodes = new HashSet<string>(StringComparer.Ordinal);
         foreach (var issue in CriticalIssues)

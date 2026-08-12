@@ -92,6 +92,20 @@ if (-not $NonInteractive) {
         }
     }
 
+    if (Test-Path -LiteralPath $evidencePath) {
+        $objectiveEvidence = Get-Content -LiteralPath $evidencePath -Raw | ConvertFrom-Json
+        $guidanceMode = [string]$objectiveEvidence.onboarding.guidanceMode
+        Write-Host "Guidance mode from objective evidence: $guidanceMode"
+    }
+    else {
+        while ($true) {
+            $guidanceText = (Read-Host "Which guidance mode did the player select? [guided/contextual/minimal]").Trim().ToLowerInvariant()
+            if ($guidanceText -in @("guided", "contextual", "minimal")) { break }
+            Write-Warning "Enter guided, contextual, or minimal."
+        }
+        $guidanceMode = (Get-Culture).TextInfo.ToTitleCase($guidanceText)
+    }
+
     $vocabularyNovice = Read-YesNo "Was the player unfamiliar with the intended systems/programming vocabulary?"
     $movementDiscovered = Read-YesNo "Did the player discover movement without coaching?"
     $interactionDiscovered = Read-YesNo "Did the player discover contextual interaction without coaching?"
@@ -130,6 +144,7 @@ if (-not $NonInteractive) {
         sessionId = $sessionId
         recordedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
         participantKind = "Human"
+        guidanceMode = $guidanceMode
         vocabularyNovice = $vocabularyNovice
         movementDiscoveredWithoutCoaching = $movementDiscovered
         interactionDiscoveredWithoutCoaching = $interactionDiscovered

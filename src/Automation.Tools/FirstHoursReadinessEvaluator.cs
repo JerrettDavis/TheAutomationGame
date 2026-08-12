@@ -88,10 +88,13 @@ public static class FirstHoursReadinessEvaluator
             if (session.CompletionEvidence is not null &&
                 !string.Equals(session.Observation.SessionId, session.CompletionEvidence.SessionId, StringComparison.Ordinal))
                 throw new InvalidDataException($"Session '{session.Observation.SessionId}' has mismatched completion evidence.");
+            if (session.CompletionEvidence is { } completedEvidence &&
+                session.Observation.GuidanceMode != completedEvidence.Onboarding.GuidanceMode)
+                throw new InvalidDataException($"Session '{session.Observation.SessionId}' has mismatched guidance evidence.");
             if (session.CompletionEvidence is { } evidence &&
                 (!evidence.Onboarding.Complete || !evidence.ShiftReport.Available ||
                  evidence.ShiftTrial.Status != Automation.Simulation.ShiftTrialStatus.Passed ||
-                 evidence.Quests.Length == 0 || evidence.Quests.Any(quest => !quest.Complete) ||
+                 !HasCompleteQuestSet(evidence) ||
                  evidence.WallClockSeconds < 0))
                 throw new InvalidDataException($"Session '{session.Observation.SessionId}' has incomplete or invalid first-hours completion evidence.");
         }
@@ -109,8 +112,8 @@ public static class FirstHoursReadinessEvaluator
         var proof = human.Count(session => session.Observation.ReplayProofValueArticulated);
         var strategy = human.Count(session => session.Observation.StrategyExpressedBeforeNaming);
         var novices = human.Count(session => session.Observation.VocabularyNovice);
-        var guided = human.Count(session => session.CompletionEvidence?.Onboarding.GuidanceMode.ToString() == "Guided");
-        var contextual = human.Count(session => session.CompletionEvidence?.Onboarding.GuidanceMode.ToString() == "Contextual");
+        var guided = human.Count(session => session.Observation.GuidanceMode == Automation.Domain.GuidanceMode.Guided);
+        var contextual = human.Count(session => session.Observation.GuidanceMode == Automation.Domain.GuidanceMode.Contextual);
         var completed = human.Where(session => session.CompletionEvidence is not null).ToArray();
         var inEnvelope = completed.Count(session =>
         {
@@ -118,26 +121,38 @@ public static class FirstHoursReadinessEvaluator
             return minutes is >= MinimumWallMinutes and <= MaximumWallMinutes;
         });
         var durationRequired = Required(completed.Length, 0.8);
+        var observed80 = human.Length == 0 ? "awaiting 5-human cohort" : $"need {required80}";
+        var observed60 = human.Length == 0 ? "awaiting 5-human cohort" : $"need {required60}";
+        var observedDuration = completed.Length == 0 ? "awaiting completed human sessions" : $"need {durationRequired}";
         var blockerGroups = human.Select(session => Normalize(session.Observation.PrimaryProgressionBlocker))
             .Where(blocker => blocker is not null)
             .GroupBy(blocker => blocker!, StringComparer.Ordinal)
             .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal).ToArray();
         var maximumBlockerRecurrence = blockerGroups.FirstOrDefault()?.Count() ?? 0;
+        var issueGroups = human.SelectMany(session => session.Observation.CriticalIssues)
+            .GroupBy(issue => issue.Code, StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal).ToArray();
+        foreach (var issueGroup in issueGroups)
+        {
+            var definitions = issueGroup.Select(issue => (issue.Summary, issue.Owner, issue.Disposition)).Distinct().ToArray();
+            if (definitions.Length > 1)
+                throw new InvalidDataException($"Critical issue '{issueGroup.Key}' has conflicting summary, owner, or disposition across sessions.");
+        }
 
         var criteria = new List<FirstHoursReadinessCriterion>
         {
             Criterion("sample", $"At least {MinimumHumanSessions} human sessions", $"{human.Length} human; {all.Length - human.Length} synthetic fixture", enough, enough),
             Criterion("novice-representation", $"At least {MinimumVocabularyNovices} vocabulary novices", $"{novices}/{human.Length}", novices >= MinimumVocabularyNovices, enough),
             Criterion("guidance-coverage", "Guided and Contextual each represented", $"Guided {guided}; Contextual {contextual}", guided >= 1 && contextual >= 1, enough),
-            Criterion("unassisted-completion", "At least 80% complete without action-directed help", $"{completedWithoutHelp}/{human.Length}; need {required80}", completedWithoutHelp >= required80, enough),
-            Criterion("movement-interaction", "At least 80% discover movement and contextual interaction without coaching", $"{movementAndInteraction}/{human.Length}; need {required80}", movementAndInteraction >= required80, enough),
-            Criterion("bottleneck", "At least 80% causally identify a meaningful bottleneck", $"{bottleneck}/{human.Length}; need {required80}", bottleneck >= required80, enough),
-            Criterion("readiness-disagreement", "At least 80% explain reported versus physical readiness", $"{readiness}/{human.Length}; need {required80}", readiness >= required80, enough),
-            Criterion("replay-proof", "At least 80% articulate why replay/proof matters", $"{proof}/{human.Length}; need {required80}", proof >= required80, enough),
-            Criterion("strategy-before-name", "At least 60% express the Strategy shape before naming", $"{strategy}/{human.Length}; need {required60}", strategy >= required60, enough),
+            Criterion("unassisted-completion", "At least 80% complete without action-directed help", $"{completedWithoutHelp}/{human.Length}; {observed80}", completedWithoutHelp >= required80, enough),
+            Criterion("movement-interaction", "At least 80% discover movement and contextual interaction without coaching", $"{movementAndInteraction}/{human.Length}; {observed80}", movementAndInteraction >= required80, enough),
+            Criterion("bottleneck", "At least 80% causally identify a meaningful bottleneck", $"{bottleneck}/{human.Length}; {observed80}", bottleneck >= required80, enough),
+            Criterion("readiness-disagreement", "At least 80% explain reported versus physical readiness", $"{readiness}/{human.Length}; {observed80}", readiness >= required80, enough),
+            Criterion("replay-proof", "At least 80% articulate why replay/proof matters", $"{proof}/{human.Length}; {observed80}", proof >= required80, enough),
+            Criterion("strategy-before-name", "At least 60% express the Strategy shape before naming", $"{strategy}/{human.Length}; {observed60}", strategy >= required60, enough),
             Criterion("progression-blockers", "No progression blocker occurs in more than one session", maximumBlockerRecurrence == 0 ? "None recorded" : $"Maximum recurrence {maximumBlockerRecurrence}", maximumBlockerRecurrence <= 1, enough),
             Criterion("critical-issues", "Every critical UI/accessibility issue has an owner and disposition", $"{human.Sum(session => session.Observation.CriticalIssues.Length)} recorded", true, enough),
-            Criterion("duration", "At least 80% of completed shifts finish in 45–120 wall-clock minutes", $"{inEnvelope}/{completed.Length}; need {durationRequired}", completed.Length > 0 && inEnvelope >= durationRequired, enough),
+            Criterion("duration", "At least 80% of completed shifts finish in 45–120 wall-clock minutes", $"{inEnvelope}/{completed.Length}; {observedDuration}", completed.Length > 0 && inEnvelope >= durationRequired, enough),
         };
 
         var followUps = new List<FirstHoursReadinessFollowUp>();
@@ -147,9 +162,7 @@ public static class FirstHoursReadinessEvaluator
         foreach (var blocker in blockerGroups)
             followUps.Add(new(blocker.Count() > 1 ? 1 : 2, $"blocker:{blocker.Key}",
                 $"Observed in {blocker.Count()} human session(s).", "S035 study owner", blocker.Count() > 1 ? "REQUIRES FIX" : "MONITOR"));
-        foreach (var issue in human.SelectMany(session => session.Observation.CriticalIssues)
-                     .GroupBy(issue => issue.Code, StringComparer.Ordinal)
-                     .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal))
+        foreach (var issue in issueGroups)
         {
             var first = issue.First();
             followUps.Add(new(issue.Count() > 1 ? 1 : 2, $"issue:{issue.Key}",
@@ -183,7 +196,7 @@ public static class FirstHoursReadinessEvaluator
         {
             var evidence = session.CompletionEvidence;
             var wall = evidence is null ? "—" : (evidence.WallClockSeconds / 60d).ToString("0.0", CultureInfo.InvariantCulture);
-            builder.AppendLine($"| `{Escape(session.Observation.SessionId)}` | {session.Observation.ParticipantKind} | {(evidence is null ? "No" : "Yes")} | {evidence?.Onboarding.GuidanceMode.ToString() ?? "—"} | {wall} | {(session.Observation.ActionDirectedFacilitatorHelp ? "Yes" : "No")} | {Escape(Normalize(session.Observation.PrimaryProgressionBlocker) ?? "None")} |");
+            builder.AppendLine($"| `{Escape(session.Observation.SessionId)}` | {session.Observation.ParticipantKind} | {(evidence is null ? "No" : "Yes")} | {session.Observation.GuidanceMode} | {wall} | {(session.Observation.ActionDirectedFacilitatorHelp ? "Yes" : "No")} | {Escape(Normalize(session.Observation.PrimaryProgressionBlocker) ?? "None")} |");
         }
         builder.AppendLine();
         builder.AppendLine("## Comprehension observations");
@@ -233,4 +246,11 @@ public static class FirstHoursReadinessEvaluator
         .Replace("\r", " ", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
 
     private static string YesNo(bool value) => value ? "Yes" : "No";
+
+    private static bool HasCompleteQuestSet(FirstHoursPlaytestEvidence evidence)
+    {
+        var expected = Enum.GetValues<Automation.Domain.DishStationQuestId>();
+        return evidence.Quests.Length == expected.Length && evidence.Quests.All(quest => quest.Complete) &&
+               evidence.Quests.Select(quest => quest.Id).ToHashSet().SetEquals(expected);
+    }
 }
