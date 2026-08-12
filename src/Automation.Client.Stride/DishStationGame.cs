@@ -213,8 +213,10 @@ public sealed class DishStationGame : Game
             simulationAccumulator -= 0.1;
             if (world.Tick.Value % 10 == 0) UpdateWindowTitle();
         }
-        audioRouter.Observe(world.Snapshot(), world.Notifications, EmitAudio);
-        ObserveDialogue(world.Snapshot());
+        var presentationSnapshot = world.Snapshot();
+        audioRouter.Observe(presentationSnapshot, world.Notifications, EmitAudio);
+        audioPresenter?.SynchronizeWasher(presentationSnapshot.WasherRunning);
+        ObserveDialogue(presentationSnapshot);
 
         progressionReceiptSeconds = Math.Max(0, progressionReceiptSeconds - (float)gameTime.Elapsed.TotalSeconds);
         ObserveProgression();

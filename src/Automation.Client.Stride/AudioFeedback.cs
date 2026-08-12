@@ -128,6 +128,7 @@ public sealed class DishStationAudioPresenter : IDisposable
     private readonly Dictionary<AudioCue, Sound> sounds;
     private readonly Dictionary<AudioCue, SoundInstance> instances;
     private int masterVolumePercent;
+    private bool washerLoopPlaying;
 
     private DishStationAudioPresenter(Dictionary<AudioCue, Sound> sounds, Dictionary<AudioCue, SoundInstance> instances,
         int masterVolumePercent)
@@ -166,22 +167,32 @@ public sealed class DishStationAudioPresenter : IDisposable
         masterVolumePercent = Math.Clamp(percent, 0, 100);
         foreach (var pair in instances)
             pair.Value.Volume = AudioCueCatalog.EffectiveGain(pair.Key, masterVolumePercent);
+        if (masterVolumePercent == 0) SynchronizeWasher(running: false);
     }
 
     public void Play(AudioCueEmission emission)
     {
         if (masterVolumePercent == 0 || !instances.TryGetValue(emission.Cue, out var instance)) return;
-        if (emission.Cue == AudioCue.WasherComplete && instances.TryGetValue(AudioCue.WasherLoop, out var running)) running.Stop();
+        if (emission.Cue == AudioCue.WasherComplete) SynchronizeWasher(running: false);
         instance.Volume = emission.BaseGain * masterVolumePercent / 100f;
         instance.IsLooping = emission.Looping;
         if (emission.Looping) instance.Play();
         else instance.PlayExclusive();
-        if (emission.Cue == AudioCue.WasherStart && instances.TryGetValue(AudioCue.WasherLoop, out var loop))
+        if (emission.Cue == AudioCue.WasherStart) SynchronizeWasher(running: true);
+    }
+
+    public void SynchronizeWasher(bool running)
+    {
+        running &= masterVolumePercent > 0;
+        if (running == washerLoopPlaying || !instances.TryGetValue(AudioCue.WasherLoop, out var loop)) return;
+        if (running)
         {
             loop.Volume = AudioCueCatalog.EffectiveGain(AudioCue.WasherLoop, masterVolumePercent);
             loop.IsLooping = true;
             loop.Play();
         }
+        else loop.Stop();
+        washerLoopPlaying = running;
     }
 
     public void Dispose()
