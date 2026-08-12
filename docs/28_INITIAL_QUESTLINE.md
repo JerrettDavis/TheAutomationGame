@@ -144,6 +144,17 @@ After the player creates interchangeable routing behavior, the Pattern Codex ide
 
 This is the first explicit design-pattern reveal.
 
+Implemented episode contract for S032:
+
+- **starting state:** the player's copied and fitted restaurant trials have produced two persisted evidence records and `Recognized`, while `Named` is absent;
+- **recognition beat:** opening the Codex starts on those lived problem, move, and consequence records rather than terminology;
+- **player action:** the player chooses to reflect on the recurring shape; this is an acknowledgement, not a multiple-choice or vocabulary test;
+- **terminal outcome:** an application service records `Named` against the qualifying evidence, saves the career, and reveals **Strategy Pattern**;
+- **observable follow-through:** the named page explains the interchangeable decision slot, the concrete policy choices, the context that selects them, and both the benefit and cost of adding policies;
+- **headless proof:** an unrecognized profile cannot be named, a recognized profile can be named idempotently, and save/resume preserves the reveal.
+
+The naming action does not modify either restaurant simulation, award throughput, or retroactively rewrite the evidence. Cross-domain transfer, stress testing, composition, and code representation remain later milestones.
+
 ## Arc completion
 
 The player is offered a process/automation role elsewhere in the organization, opening the warehouse campaign.
