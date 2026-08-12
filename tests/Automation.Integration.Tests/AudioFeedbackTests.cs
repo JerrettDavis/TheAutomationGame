@@ -12,7 +12,7 @@ public sealed class AudioFeedbackTests
     {
         var cues = Enum.GetValues<AudioCue>();
 
-        Assert.Equal(7, cues.Length);
+        Assert.Equal(9, cues.Length);
         Assert.Equal(cues.Length, cues.Select(AudioCueCatalog.ContentUrl).Distinct(StringComparer.Ordinal).Count());
         Assert.All(cues, cue =>
         {
@@ -21,6 +21,49 @@ public sealed class AudioFeedbackTests
             Assert.Equal(0, AudioCueCatalog.EffectiveGain(cue, 0));
             Assert.Equal(AudioCueCatalog.BaseGain(cue), AudioCueCatalog.EffectiveGain(cue, 100), 3);
         });
+    }
+
+    [Fact]
+    public void UiConfirmationAndWasherLoopHaveDistinctAccessibleRouting()
+    {
+        var router = new DishStationAudioRouter();
+        var emissions = new List<AudioCueEmission>();
+
+        router.Confirm(emissions.Add);
+        var washerStart = DishStationAudioRouter.FromNotification(
+            new WorldNotification(new SimulationTick(4), "Washer started", "Visible running state."));
+
+        Assert.Equal(AudioCue.UiConfirm, Assert.Single(emissions).Cue);
+        Assert.Contains("CONFIRMED", emissions[0].Caption, StringComparison.Ordinal);
+        Assert.Equal(AudioCue.WasherStart, washerStart?.Cue);
+        Assert.NotEqual(AudioCueCatalog.ContentUrl(AudioCue.WasherStart), AudioCueCatalog.ContentUrl(AudioCue.WasherLoop));
+        Assert.True(AudioCueCatalog.BaseGain(AudioCue.WasherLoop) < AudioCueCatalog.BaseGain(AudioCue.WasherStart));
+    }
+
+    [Fact]
+    public void EveryAcceptedCueHasValidDeterministicMonoPcmSource()
+    {
+        var audioDirectory = Path.Combine(RepositoryRoot(), "src", "Automation.Client.Stride", "Resources", "Audio");
+
+        foreach (var cue in Enum.GetValues<AudioCue>())
+        {
+            var path = Path.Combine(audioDirectory, $"{AudioCueCatalog.ContentUrl(cue)["Audio/".Length..]}.wav");
+            Assert.True(File.Exists(path), path);
+            using var reader = new BinaryReader(File.OpenRead(path));
+            Assert.Equal("RIFF", new string(reader.ReadChars(4)));
+            Assert.True(reader.ReadInt32() > 36);
+            Assert.Equal("WAVE", new string(reader.ReadChars(4)));
+            Assert.Equal("fmt ", new string(reader.ReadChars(4)));
+            Assert.Equal(16, reader.ReadInt32());
+            Assert.Equal(1, reader.ReadInt16());
+            Assert.Equal(1, reader.ReadInt16());
+            Assert.Equal(22_050, reader.ReadInt32());
+            Assert.Equal(44_100, reader.ReadInt32());
+            Assert.Equal(2, reader.ReadInt16());
+            Assert.Equal(16, reader.ReadInt16());
+            Assert.Equal("data", new string(reader.ReadChars(4)));
+            Assert.True(reader.ReadInt32() > 0);
+        }
     }
 
     [Fact]
@@ -102,5 +145,12 @@ public sealed class AudioFeedbackTests
         Assert.True(result.Success);
         router.ObserveCommand(command, result, emissions.Add);
         router.Observe(world.Snapshot(), world.Notifications, emissions.Add);
+    }
+
+    private static string RepositoryRoot()
+    {
+        for (var current = new DirectoryInfo(AppContext.BaseDirectory); current is not null; current = current.Parent)
+            if (File.Exists(Path.Combine(current.FullName, "TheAutomationGame.sln"))) return current.FullName;
+        throw new DirectoryNotFoundException("Repository root not found.");
     }
 }

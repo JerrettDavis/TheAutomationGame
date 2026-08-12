@@ -4,8 +4,8 @@
 - Source: no third-party recording or sample source
 - License: project MIT license
 - Imported assets: `Assets/Audio/*.sdsnd`
-- Runtime URLs: `Audio/DishRoomAmbience`, `Audio/Work`, `Audio/WasherStart`, `Audio/WasherComplete`, `Audio/Blocked`, `Audio/Failure`, `Audio/QuestSuccess`
+- Runtime URLs: `Audio/DishRoomAmbience`, `Audio/Work`, `Audio/WasherStart`, `Audio/WasherLoop`, `Audio/WasherComplete`, `Audio/Blocked`, `Audio/Failure`, `Audio/QuestSuccess`, `Audio/UiConfirm`
 - Format: mono PCM WAV, 22,050 Hz, 16-bit; compiled by Stride as non-spatialized in-memory sounds
-- Shipping status: temporary production candidate
+- Shipping status: approved alpha for the first restaurant chapter
 - Modified: generated directly at the listed parameters; rerun `tools/generate-audio-assets.ps1` to reproduce all source WAV files
 - Notes: simple synthesized tones/hum deliberately avoid third-party licensing uncertainty. They establish routing, mix, accessibility, and replacement seams; later authored recordings may replace them without changing simulation identity.

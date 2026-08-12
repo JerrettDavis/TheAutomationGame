@@ -72,7 +72,7 @@ public static class RestaurantAlphaAssetAudit
             "Replace only through an accessibility-reviewed UI/icon pass that preserves text labels."),
         Surface("restaurant.audio.core-cues", RestaurantAssetCategory.Audio,
             "src/Automation.Client.Stride/Resources/Audio/PROVENANCE.md", "Project-authored CC0-1.0 dedication",
-            "Seven synthesized mono cues; no spatialization, dialogue, music bus, or dynamic mix.",
+            "Nine synthesized mono cues; no spatialization, dialogue, music bus, or dynamic mix.",
             "Replace when reviewed recordings cover the same routed events and retain captions.",
             hasAccessibleEquivalent: true),
         Surface("restaurant.vfx.operational-states", RestaurantAssetCategory.Vfx,

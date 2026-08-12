@@ -49,9 +49,11 @@ Write-Wave 'DishRoomAmbience' 2.0 {
 }
 Write-Wave 'Work' 0.22 { param($t, $i, $count) (Envelope $t 0.22) * ([Math]::Sin(2*[Math]::PI*520*$t)*0.25 + [Math]::Sin(2*[Math]::PI*780*$t)*0.10) }
 Write-Wave 'WasherStart' 0.52 { param($t, $i, $count) (Envelope $t 0.52) * [Math]::Sin(2*[Math]::PI*(120 + 420*$t)*$t)*0.28 }
+Write-Wave 'WasherLoop' 1.50 { param($t, $i, $count) ([Math]::Sin([Math]::PI*$t/1.50) * [Math]::Sin([Math]::PI*$t/1.50)) * ([Math]::Sin(2*[Math]::PI*60*$t)*0.13 + [Math]::Sin(2*[Math]::PI*180*$t)*0.035) }
 Write-Wave 'WasherComplete' 0.55 { param($t, $i, $count) (Envelope $t 0.55) * ([Math]::Sin(2*[Math]::PI*660*$t)*0.20 + [Math]::Sin(2*[Math]::PI*880*$t)*0.12) }
 Write-Wave 'Blocked' 0.20 { param($t, $i, $count) (Envelope $t 0.20) * [Math]::Sin(2*[Math]::PI*(210 - 450*$t)*$t)*0.30 }
 Write-Wave 'Failure' 0.62 { param($t, $i, $count) (Envelope $t 0.62) * ([Math]::Sin(2*[Math]::PI*185*$t)*0.24 + [Math]::Sin(2*[Math]::PI*233*$t)*0.16) }
 Write-Wave 'QuestSuccess' 0.72 { param($t, $i, $count) $note = if($t -lt .24){523.25}elseif($t -lt .48){659.25}else{783.99}; (Envelope $t 0.72) * [Math]::Sin(2*[Math]::PI*$note*$t)*0.25 }
+Write-Wave 'UiConfirm' 0.18 { param($t, $i, $count) (Envelope $t 0.18) * ([Math]::Sin(2*[Math]::PI*740*$t)*0.16 + [Math]::Sin(2*[Math]::PI*1110*$t)*0.08) }
 
 Get-ChildItem -Path $OutputDirectory -Filter '*.wav' | Sort-Object Name | Select-Object Name, Length

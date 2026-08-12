@@ -15,7 +15,7 @@ This is the shipping decision for the complete first restaurant chapter. It supe
 | `restaurant.cast.world-rig` | cast | project-authored `SharedCharacterRig` | approved-alpha | player and new hire cover idle, walk, and work; no carry, inspect, talk, or attention pose | a shared authored rig covers the missing first-chapter poses within actor and reduced-motion budgets |
 | `restaurant.cast.dialogue-identities` | cast | project-authored cast badge catalog | approved-alpha | recurring speakers use consistent color-and-monogram badges, not illustrated portraits | every first-shift speaker has one coherent reviewed portrait set |
 | `restaurant.ui.semantic-language` | UI | project-authored `DishStationGame` and `PixelFont` | approved-alpha | pixel glyphs, text labels, panels, and state colors form the alpha UI kit | an accessibility-reviewed UI/icon pass preserves text labels, keyboard use, scaling, and contrast semantics |
-| `restaurant.audio.core-cues` | audio | project-authored synthesized WAVs, CC0-1.0 dedication; see audio provenance | approved-alpha | seven mono cues; no spatialization, dialogue, music bus, or dynamic mix | reviewed recordings cover the same routed events and retain visible captions/equivalent state changes |
+| `restaurant.audio.core-cues` | audio | project-authored synthesized WAVs under the project MIT license; see audio provenance | approved-alpha | nine mono cues; no spatialization, dialogue, music bus, or dynamic mix | reviewed recordings cover the same routed events and retain visible captions/equivalent state changes |
 | `restaurant.vfx.operational-states` | VFX | project-authored geometry overlays and pulses | approved-alpha | bounded overlays replace particles | a reviewed family remains legible at minimum zoom and has a reduced-motion form |
 
 ## Required operational coverage
@@ -51,7 +51,7 @@ The first-pass icon language is code-native and always paired with text. It cove
 
 ## Audio
 
-The compiled cue set contains dish-room ambience, work, washer start, washer complete, blocked action, operational failure, and quest success. Source WAVs and deterministic regeneration evidence live in `src/Automation.Client.Stride/Resources/Audio/PROVENANCE.md`. Every information-bearing cue has a `SOUND • ...` caption and corresponding visible state or feedback. Silence remains a valid typed fallback when the device or asset pipeline is unavailable.
+The compiled cue set contains dish-room ambience, work, washer start, washer run loop, washer complete, blocked action, operational failure, quest success, and UI confirmation. Source WAVs and deterministic regeneration evidence live in `src/Automation.Client.Stride/Resources/Audio/PROVENANCE.md`. Every information-bearing cue has a `SOUND • ...` caption and corresponding visible state or feedback. Silence remains a valid typed fallback when the device or asset pipeline is unavailable.
 
 ## External provenance
 
@@ -59,6 +59,6 @@ The compiled cue set contains dish-room ambience, work, washer start, washer com
 |---|---|---|---|---|
 | Furniture Kit washer GLB/projection | Kenney | CC0 1.0 | `src/Automation.Client.Stride/Assets/imported/kenney-furniture-kit/PROVENANCE.md` and `LICENSE.txt` | approved-alpha |
 | Cursor Pack 1.1 | Kenney | CC0 1.0 | `assets-src/kenney/cursor-pack-1.1/PROVENANCE.md` and `License.txt` | approved-alpha |
-| seven synthesized WAV cues | project-authored | CC0-1.0 dedication | `src/Automation.Client.Stride/Resources/Audio/PROVENANCE.md` | approved-alpha |
+| nine synthesized WAV cues | project-authored | project MIT license | `src/Automation.Client.Stride/Resources/Audio/PROVENANCE.md` | approved-alpha |
 
 No generated or downloaded asset without a listed source and license is accepted by this register.

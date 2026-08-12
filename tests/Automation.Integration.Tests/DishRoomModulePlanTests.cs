@@ -21,6 +21,10 @@ public sealed class DishRoomModulePlanTests
         Assert.Single(plan.Modules, module => module.Kind == DishRoomModuleKind.WasherModel);
         Assert.Equal(2, plan.Modules.Count(module => module.Kind == DishRoomModuleKind.Rack));
         Assert.Single(plan.Modules, module => module.Kind == DishRoomModuleKind.ServicePass);
+        Assert.Equal(5, plan.Modules.Count(module => module.Kind == DishRoomModuleKind.WorkZone));
+        Assert.True(plan.Modules.Count(module => module.Kind == DishRoomModuleKind.EquipmentDetail) >= 18);
+        Assert.Equal(2, plan.Modules.Count(module => module.Kind == DishRoomModuleKind.UtilityTrim));
+        Assert.Equal(3, plan.Modules.Count(module => module.Kind == DishRoomModuleKind.LightFixture));
         Assert.Equal(plan.Modules.Count, plan.Modules.Select(module => module.Id).Distinct(StringComparer.Ordinal).Count());
         Assert.All(plan.Modules, module =>
         {

@@ -10,10 +10,12 @@ public enum AudioCue
     Ambience,
     Work,
     WasherStart,
+    WasherLoop,
     WasherComplete,
     Blocked,
     Failure,
     QuestSuccess,
+    UiConfirm,
 }
 
 public readonly record struct AudioCueEmission(AudioCue Cue, string Caption, float BaseGain, bool Looping = false);
@@ -26,10 +28,12 @@ public static class AudioCueCatalog
         AudioCue.Ambience => AmbienceUrl,
         AudioCue.Work => "Audio/Work",
         AudioCue.WasherStart => "Audio/WasherStart",
+        AudioCue.WasherLoop => "Audio/WasherLoop",
         AudioCue.WasherComplete => "Audio/WasherComplete",
         AudioCue.Blocked => "Audio/Blocked",
         AudioCue.Failure => "Audio/Failure",
         AudioCue.QuestSuccess => "Audio/QuestSuccess",
+        AudioCue.UiConfirm => "Audio/UiConfirm",
         _ => throw new ArgumentOutOfRangeException(nameof(cue)),
     };
 
@@ -38,9 +42,11 @@ public static class AudioCueCatalog
         AudioCue.Ambience => 0.18f,
         AudioCue.Work => 0.45f,
         AudioCue.WasherStart or AudioCue.WasherComplete => 0.55f,
+        AudioCue.WasherLoop => 0.16f,
         AudioCue.Blocked => 0.5f,
         AudioCue.Failure => 0.65f,
         AudioCue.QuestSuccess => 0.6f,
+        AudioCue.UiConfirm => 0.38f,
         _ => 0.5f,
     };
 
@@ -65,6 +71,9 @@ public sealed class DishStationAudioRouter
 
     public void Start(Action<AudioCueEmission> emit) =>
         emit(new(AudioCue.Ambience, "SOUND • DISH-ROOM AMBIENCE", AudioCueCatalog.BaseGain(AudioCue.Ambience), Looping: true));
+
+    public void Confirm(Action<AudioCueEmission> emit) =>
+        emit(new(AudioCue.UiConfirm, "SOUND • CONFIRMED", AudioCueCatalog.BaseGain(AudioCue.UiConfirm)));
 
     public void ObserveCommand(ISimulationCommand command, CommandResult result, Action<AudioCueEmission> emit)
     {
@@ -162,10 +171,17 @@ public sealed class DishStationAudioPresenter : IDisposable
     public void Play(AudioCueEmission emission)
     {
         if (masterVolumePercent == 0 || !instances.TryGetValue(emission.Cue, out var instance)) return;
+        if (emission.Cue == AudioCue.WasherComplete && instances.TryGetValue(AudioCue.WasherLoop, out var running)) running.Stop();
         instance.Volume = emission.BaseGain * masterVolumePercent / 100f;
         instance.IsLooping = emission.Looping;
         if (emission.Looping) instance.Play();
         else instance.PlayExclusive();
+        if (emission.Cue == AudioCue.WasherStart && instances.TryGetValue(AudioCue.WasherLoop, out var loop))
+        {
+            loop.Volume = AudioCueCatalog.EffectiveGain(AudioCue.WasherLoop, masterVolumePercent);
+            loop.IsLooping = true;
+            loop.Play();
+        }
     }
 
     public void Dispose()

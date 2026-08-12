@@ -19,5 +19,19 @@ public sealed class CharacterDialoguePresenterTests
         Assert.Equal("MAINTENANCE SUPPORT", presentation.Role);
         Assert.Equal("READY IS WHAT THE PANEL REPORTS. THE MACHINE IS STILL OCCUPIED.", presentation.Line);
         Assert.Equal(CharacterDialoguePriority.Critical, presentation.Priority);
+        Assert.Equal("DP", presentation.Badge.Monogram);
+        Assert.Equal(RestaurantCastBadgeCatalog.Resolve("character.restaurant.devon-price"), presentation.Badge);
+    }
+
+    [Fact]
+    public void EveryAuthoredFirstShiftCharacterHasADistinctApprovedBadge()
+    {
+        var characters = DishStationFirstHoursContent.Catalog.Characters;
+
+        Assert.Equal(characters.Length, RestaurantCastBadgeCatalog.All.Count);
+        Assert.All(characters, character =>
+            Assert.False(string.IsNullOrWhiteSpace(RestaurantCastBadgeCatalog.Resolve(character.Id.Value).Monogram)));
+        Assert.Equal(RestaurantCastBadgeCatalog.All.Count,
+            RestaurantCastBadgeCatalog.All.Values.Select(badge => badge.Color).Distinct().Count());
     }
 }

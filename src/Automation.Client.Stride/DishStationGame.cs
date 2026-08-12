@@ -1083,7 +1083,11 @@ public sealed class DishStationGame : Game
     {
         var result = vendorWorld.ExecuteNow(command);
         commandFeedback = result.Message;
-        if (result.Success) SaveCareer();
+        if (result.Success)
+        {
+            audioRouter.Confirm(EmitAudio);
+            SaveCareer();
+        }
         UpdateWindowTitle();
         return result.Success;
     }
@@ -1990,7 +1994,8 @@ public sealed class DishStationGame : Game
             var barkColor = bark.Priority == CharacterDialoguePriority.Critical ? Color.OrangeRed :
                 bark.Priority == CharacterDialoguePriority.Important ? Color.Goldenrod : Color.LightGray;
             DrawPanel(494, 388, 516, 98, new Color(17, 30, 38, 238), barkColor);
-            PixelFont.Draw(spriteBatch!, pixel!, $"{bark.Speaker}  •  {bark.Role}", 510, 402, 1, barkColor, 70);
+            DrawCastBadge(510, 400, bark.Badge);
+            PixelFont.Draw(spriteBatch!, pixel!, $"{bark.Speaker}  •  {bark.Role}", 546, 402, 1, barkColor, 64);
             PixelFont.Draw(spriteBatch!, pixel!, bark.Line, 510, 428, 1, Color.White, 67);
         }
 
@@ -2208,7 +2213,8 @@ public sealed class DishStationGame : Game
             DishStationVendorContent.Quest);
         DrawPanel(16, 16, 992, 568, new Color(14, 29, 39, 252), Color.CornflowerBlue);
         PixelFont.Draw(spriteBatch!, pixel!, view.Title, 52, 38, 2, Color.LightSkyBlue);
-        PixelFont.Draw(spriteBatch!, pixel!, view.Speaker, 700, 42, 1, Color.MediumPurple, 44);
+        DrawCastBadge(672, 32, RestaurantCastBadgeCatalog.Resolve("character.recurring.sam-rivera"));
+        PixelFont.Draw(spriteBatch!, pixel!, view.Speaker, 708, 42, 1, Color.MediumPurple, 40);
         PixelFont.Draw(spriteBatch!, pixel!, view.Pitch, 52, 80, 1, Color.LightGray, 148);
         PixelFont.Draw(spriteBatch!, pixel!, view.SharedIncident, 52, 119, 1, Color.Goldenrod, 148);
         var x = 52f;
@@ -2288,6 +2294,15 @@ public sealed class DishStationGame : Game
             DrawRect(x, y + height - 2, width, 2, accent);
             DrawRect(x + width - 2, y, 2, height, accent);
         }
+    }
+
+    private void DrawCastBadge(float x, float y, CastBadgePresentation badge)
+    {
+        DrawRect(x, y, 28, 24, new Color(7, 14, 18, 245));
+        DrawRect(x, y, 4, 24, badge.Color);
+        DrawRect(x + 4, y, 24, 2, badge.Color);
+        DrawRect(x + 4, y + 22, 24, 2, badge.Color);
+        PixelFont.Draw(spriteBatch!, pixel!, badge.Monogram, x + 8, y + 8, 1, badge.Color, 2);
     }
 
     private void DrawWorkstation(DishStationSnapshot snapshot, int index)

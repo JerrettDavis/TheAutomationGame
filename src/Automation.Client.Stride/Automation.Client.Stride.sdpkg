@@ -23,3 +23,5 @@ RootAssets:
     - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7005:Audio/Blocked
     - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7006:Audio/Failure
     - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7007:Audio/QuestSuccess
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7008:Audio/WasherLoop
+    - 12dd0dd7-ccbf-4a18-aeba-4e286e7e7009:Audio/UiConfirm
