@@ -34,7 +34,8 @@ public sealed class DishStationGame : Game
     private readonly PresentationCatalog presentationCatalog;
 
     private DishStationWorld world = new(42, DishStationFirstHoursContent.ScenarioConfiguration);
-    private readonly TwoStationRoutingWorld twoStationWorld = new(42, DishStationTwoStationsContent.Configuration);
+    private TwoStationRoutingWorld twoStationWorld = new(42, DishStationTwoStationsContent.Configuration);
+    private PatternKnowledgeProfile patternKnowledge = PatternKnowledgeProfile.Empty;
     private double simulationAccumulator;
     private DishKind selectedKind = DishKind.Plate;
     private int selectedWorkstation;
@@ -953,6 +954,16 @@ public sealed class DishStationGame : Game
     {
         var result = twoStationWorld.ExecuteNow(command);
         commandFeedback = result.Message;
+        if (result.Success)
+        {
+            var pattern = DishStationPatternContent.Strategy.PatternId;
+            var wasRecognized = patternKnowledge.For(pattern).Has(PatternKnowledgeMilestone.Recognized);
+            patternKnowledge = RestaurantPatternEvidenceRecognizer.Recognize(patternKnowledge,
+                twoStationWorld.Snapshot(), DishStationPatternContent.Strategy);
+            if (!wasRecognized && patternKnowledge.For(pattern).Has(PatternKnowledgeMilestone.Recognized))
+                commandFeedback = "Codex recorded a reusable routing shape from your two station trials.";
+            SaveCareer();
+        }
         UpdateWindowTitle();
         return result.Success;
     }
@@ -1054,7 +1065,11 @@ public sealed class DishStationGame : Game
         {
             try
             {
-                world = DishStationSaveStore.LoadFile(careerSavePath);
+                var career = AutomationCareerSaveStore.LoadFile(careerSavePath, 42,
+                    DishStationTwoStationsContent.Configuration);
+                world = career.FirstShift;
+                twoStationWorld = career.TwoStationRouting;
+                patternKnowledge = career.PatternKnowledge;
                 var snapshot = world.Snapshot();
                 observedLevel = snapshot.Progression.Level;
                 observedActiveQuest = snapshot.Progression.ActiveQuest;
@@ -1094,6 +1109,8 @@ public sealed class DishStationGame : Game
         }
 
         world = new DishStationWorld(42, DishStationFirstHoursContent.ScenarioConfiguration);
+        twoStationWorld = new(42, DishStationTwoStationsContent.Configuration);
+        patternKnowledge = PatternKnowledgeProfile.Empty;
         introPage = 0;
         selectedGuidance = GuidanceMode.Guided;
         selectedReducedMotion = false;
@@ -1119,7 +1136,8 @@ public sealed class DishStationGame : Game
         if (!careerSaveEnabled || !world.IntroComplete) return;
         try
         {
-            DishStationSaveStore.SaveFileAtomic(careerSavePath, world);
+            AutomationCareerSaveStore.SaveFileAtomic(careerSavePath,
+                new(world, twoStationWorld, patternKnowledge));
             lastAutosaveTick = world.Tick.Value;
             saveStatus = "SAVED";
         }
