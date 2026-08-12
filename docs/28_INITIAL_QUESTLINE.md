@@ -120,6 +120,18 @@ Player chooses how much discovery/specification to provide before purchase.
 
 Discovery: implementation capability cannot compensate for undefined intent.
 
+Implemented episode contract for S033 **Buy the Box**:
+
+- **starting state:** Strategy has been named from the restaurant trials; Sam Rivera offers a supported routing/monitoring package for the two station boundary;
+- **three viable proposals:** build the integration in-house with owned diagnostics, buy Sam's lower-cost managed package with a standard response SLA, or buy an observable package with a player-owned adapter, manual fallback, and faster support;
+- **shared pressure:** the same low-frequency tray code crosses the local/vendor boundary at the same deterministic tick; the vendor implementation follows its contract, but the standard contract never defined that mapping;
+- **observable consequences:** every trial reports ordinary-case cost, incident service handled/missed, support response, setup/vendor/labor/shortage costs, net value, trace visibility, fallback ownership, and who can explain the boundary;
+- **distinct risks:** in-house work retains understanding but consumes maintenance capacity; managed purchase lowers normal cost but exposes support latency and vendor-only diagnosis; the observable contract costs more but keeps a local trace and fallback;
+- **terminal outcome:** the player can compare at least two completed proposals and keep any positive-net choice; there is no single scored "correct vendor" answer;
+- **headless proof:** all proposals run from the same authored horizon and incident, remain positive-net, and produce distinct cost/availability/ownership profiles with deterministic replay.
+
+The incident must not portray Sam as incompetent. It is a contract-boundary assumption: the local system calls the rare tray `exception`, the vendor interface expects `special`, and behavior differs according to the observability, fallback, and support terms the player selected.
+
 ### Quest: The Rare Tray
 
 A low-frequency tray jams or routes incorrectly.
