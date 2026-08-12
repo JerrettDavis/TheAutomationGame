@@ -23,8 +23,9 @@ IDs are lowercase semantic paths. Each definition type owns a required prefix:
 | Quest | `quest.` |
 | Character | `character.` |
 | Incident | `incident.` |
+| Pattern | `pattern.` |
 
-Role and presentation references use `role.` and `presentation.` respectively; those catalogs remain opaque stable IDs here. All nine definition kinds share one global ID namespace, so duplicates are rejected even across types.
+Role and presentation references use `role.` and `presentation.` respectively; those catalogs remain opaque stable IDs here. All ten definition kinds share one global ID namespace, so duplicates are rejected even across types.
 
 ## Required shapes
 
@@ -37,6 +38,7 @@ Role and presentation references use `role.` and `presentation.` respectively; t
 - `scenarios`: `id`, `industry`, `facility`, nonempty `processes`, `items`, `characters`, and named deterministic `seed`. A scenario may carry the optional complete `narrative` block, a dish-station scenario may carry the complete `dish_station` runtime block, and the concrete S030 restaurant episode may carry `two_station_routing` as described below.
 - `quests`: `id`, `scenario`, nonempty unique character `participants`, outcome-oriented `objective`, and one numeric `completion` condition. A quest may also carry the complete optional `narrative` block described below.
 - `incidents`: `id`, `industry`, `display_name`, nonnegative `trigger_at_tick`, `scope`, immediate `observable`, discoverable `evidence`, `recovery`, and exactly one typed effect block.
+- `patterns`: `id`, closed `catalog` and `category`, hidden `external_catalog_id`, player-safe `pre_name_title`, nonempty unique `problem_signatures`, a recognition rule, and nonempty primary quest encounters.
 
 Supported v1 completion metrics are `service.available.count`, `service.shortage.count`, and `process.completed.count`. Operators are `equal`, `greater_than_or_equal`, and `less_than`.
 
@@ -172,6 +174,26 @@ Exactly the `main-dish-room` and `patio-service-station` IDs are supported in th
 
 This is deliberately not a generic pattern or strategy schema. Content authors the two restaurant situations and their starting choices; `TwoStationRoutingWorld` owns policy changes, copy history, deterministic trials, metrics, and replay. S031/S032 may record and name the reusable concept only after this lived episode exists.
 
+## Pattern knowledge overlay
+
+S031 adds a minimal top-level game-owned pattern overlay. It describes recognition metadata; it does not add pattern names or learning state to simulation entities:
+
+```yaml
+patterns:
+  - id: pattern.strategy
+    catalog: gof
+    category: behavioral
+    external_catalog_id: strategy
+    pre_name_title: REUSABLE ROUTING CHOICE
+    problem_signatures: [interchangeable-policy]
+    recognition:
+      minimum_evidence: 2
+      requires_application: true
+    primary_encounters: [quest.restaurant.two-stations.one-problem]
+```
+
+The initial closed catalog/category sets are `gof` and `behavioral`/`creational`/`structural`; S031 recognizes only `interchangeable-policy`. `minimum_evidence` is positive. Primary encounters must resolve to quests. The pre-name title cannot contain the external catalog ID, preventing content from exposing conventional vocabulary before the evidence-backed naming beat. `PatternEvidence` and `PatternKnowledge` are player-history values interpreted from authoritative outcomes outside Simulation; the overlay itself does not award XP or complete a quiz.
+
 ## Incident definitions
 
 S020 adds top-level incident definitions. The first closed family set is:
@@ -204,7 +226,7 @@ Checked-in valid bundles and durable invalid-case mutations are enforced by the 
 dotnet test tests/Automation.Content.Tests/Automation.Content.Tests.csproj -c Release
 ```
 
-Definitions normalize by semantic ID. Unordered reference collections normalize for hashing, process step order and item-state order remain authored semantics, and routes normalize by endpoints. The manifest records counts for all nine kinds and a lowercase SHA-256 over canonical content.
+Definitions normalize by semantic ID. Unordered reference collections normalize for hashing, process step order and item-state order remain authored semantics, and routes normalize by endpoints. The manifest records counts for all ten kinds and a lowercase SHA-256 over canonical content.
 
 Schema v1 has no implicit migration. S026 deliberately expanded the pre-alpha v1 required character and quest shapes; every checked-in bundle and template was migrated, and older external v1 bundles fail with targeted missing-field diagnostics instead of receiving silent defaults. S028's scenario narrative is optional for generic/minimal bundles but required by the production first-shift adapter, preserving generic schema-v1 compatibility while failing an incomplete first-shift chapter clearly. A bundle with another version is rejected clearly. Future versions must add an explicit compatibility/compiler path rather than silently interpreting changed fields.
 

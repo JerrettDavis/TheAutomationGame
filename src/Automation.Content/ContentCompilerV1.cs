@@ -42,6 +42,9 @@ public static partial class ContentCompilerV1
     private static readonly HashSet<string> IncidentWorkerTokens = new(StringComparer.Ordinal) { "new-hire" };
     private static readonly HashSet<string> DialogueTriggerTokens = new(StringComparer.Ordinal) { "queue-pressure", "automation-incident", "shift-succeeded" };
     private static readonly HashSet<string> DialoguePriorityTokens = new(StringComparer.Ordinal) { "ambient", "important", "critical" };
+    private static readonly HashSet<string> PatternCatalogTokens = new(StringComparer.Ordinal) { "gof" };
+    private static readonly HashSet<string> PatternCategoryTokens = new(StringComparer.Ordinal) { "behavioral", "creational", "structural" };
+    private static readonly HashSet<string> PatternProblemSignatureTokens = new(StringComparer.Ordinal) { "interchangeable-policy" };
 
     public static CompiledContentCatalogV1 CompileFile(string path)
     {
@@ -119,8 +122,12 @@ public static partial class ContentCompilerV1
                 .OrderBy(bark => bark.Id.Value).ToImmutableArray(),
             Id(item.Presentation), Id(item.PresentationFallback))).OrderBy(item => item.Id.Value).ToImmutableArray();
         var incidents = raw.Incidents.Select(CompileIncident).OrderBy(item => item.Id.Value).ToImmutableArray();
+        var patterns = raw.Patterns.Select(item => new PatternContentDefinition(Id(item.Id), item.Catalog!, item.Category!,
+            item.ExternalCatalogId!, item.PreNameTitle!, item.ProblemSignatures!.Select(PatternProblemSignatureFromToken).ToImmutableArray(),
+            item.Recognition!.MinimumEvidence!.Value, item.Recognition.RequiresApplication,
+            Ids(item.PrimaryEncounters))).OrderBy(item => item.Id.Value).ToImmutableArray();
 
-        ValidateGraph(industries, facilities, items, workstations, processes, scenarios, quests, characters, incidents, source, diagnostics);
+        ValidateGraph(industries, facilities, items, workstations, processes, scenarios, quests, characters, incidents, patterns, source, diagnostics);
         ThrowIfAny(diagnostics);
 
         var counts = ImmutableDictionary<ContentDefinitionKind, int>.Empty
@@ -132,10 +139,11 @@ public static partial class ContentCompilerV1
             .Add(ContentDefinitionKind.Scenario, scenarios.Length)
             .Add(ContentDefinitionKind.Quest, quests.Length)
             .Add(ContentDefinitionKind.Character, characters.Length)
-            .Add(ContentDefinitionKind.Incident, incidents.Length);
+            .Add(ContentDefinitionKind.Incident, incidents.Length)
+            .Add(ContentDefinitionKind.Pattern, patterns.Length);
         var definitionCount = counts.Values.Sum();
-        var hash = Hash(industries, facilities, items, workstations, processes, scenarios, quests, characters, incidents);
-        return new(industries, facilities, items, workstations, processes, scenarios, quests, characters, incidents,
+        var hash = Hash(industries, facilities, items, workstations, processes, scenarios, quests, characters, incidents, patterns);
+        return new(industries, facilities, items, workstations, processes, scenarios, quests, characters, incidents, patterns,
             new(SchemaVersion, definitionCount, counts, hash));
     }
 
@@ -419,6 +427,28 @@ public static partial class ContentCompilerV1
                 RequirePositive(demand.IntervalTicks, "demand_spike.interval_ticks");
             }
         });
+        ValidateDefinitions(raw.Patterns, "patterns", "pattern.", source, diagnostics, item =>
+        {
+            RequireToken(item.Catalog, "catalog", PatternCatalogTokens);
+            RequireToken(item.Category, "category", PatternCategoryTokens);
+            if (!StepIdPattern().IsMatch(item.ExternalCatalogId ?? ""))
+                Add("external_catalog_id", "External catalog ID must use lowercase token syntax.");
+            Require(item.PreNameTitle, "pre_name_title", "Pre-name Codex title is required.");
+            if (item.PreNameTitle?.Contains(item.ExternalCatalogId ?? "\0", StringComparison.OrdinalIgnoreCase) == true)
+                Add("pre_name_title", "Pre-name title must not reveal the external catalog ID.");
+            if (item.ProblemSignatures is null || item.ProblemSignatures.Count == 0)
+                Add("problem_signatures", "At least one problem signature is required.");
+            else
+            {
+                for (var index = 0; index < item.ProblemSignatures.Count; index++)
+                    RequireToken(item.ProblemSignatures[index], $"problem_signatures[{index}]", PatternProblemSignatureTokens);
+                if (item.ProblemSignatures.Distinct(StringComparer.Ordinal).Count() != item.ProblemSignatures.Count)
+                    Add("problem_signatures", "Problem signatures must be unique.");
+            }
+            if (item.Recognition is null) Add("recognition", "Recognition rule is required.");
+            else RequirePositive(item.Recognition.MinimumEvidence, "recognition.minimum_evidence");
+            RequireIds(item.PrimaryEncounters, "primary_encounters");
+        });
         return;
 
         void ValidateDefinitions<T>(IReadOnlyList<T>? definitions, string collection, string prefix, string definitionSource,
@@ -480,6 +510,7 @@ public static partial class ContentCompilerV1
         ImmutableArray<QuestContentDefinition> quests,
         ImmutableArray<CharacterContentDefinition> characters,
         ImmutableArray<IncidentContentDefinition> incidents,
+        ImmutableArray<PatternContentDefinition> patterns,
         string source,
         List<ContentDiagnostic> diagnostics)
     {
@@ -493,6 +524,7 @@ public static partial class ContentCompilerV1
         AddAll(quests.Select(item => item.Id), ContentDefinitionKind.Quest, "quests");
         AddAll(characters.Select(item => item.Id), ContentDefinitionKind.Character, "characters");
         AddAll(incidents.Select(item => item.Id), ContentDefinitionKind.Incident, "incidents");
+        AddAll(patterns.Select(item => item.Id), ContentDefinitionKind.Pattern, "patterns");
 
         foreach (var item in facilities)
         {
@@ -582,6 +614,9 @@ public static partial class ContentCompilerV1
             if (!SupportedQuestMetrics.Contains(item.Completion.Metric)) Error($"quest[{item.Id}].completion.metric", $"Unknown metric '{item.Completion.Metric}'.");
             if (!SupportedQuestOperators.Contains(item.Completion.Operator)) Error($"quest[{item.Id}].completion.operator", $"Unknown operator '{item.Completion.Operator}'.");
         }
+        foreach (var item in patterns)
+            foreach (var encounter in item.PrimaryEncounters)
+                Ref(encounter, ContentDefinitionKind.Quest, $"pattern[{item.Id}].primary_encounters");
         return;
 
         void AddAll(IEnumerable<ContentId> ids, ContentDefinitionKind kind, string path)
@@ -649,7 +684,8 @@ public static partial class ContentCompilerV1
         ImmutableArray<ScenarioContentDefinition> scenarios,
         ImmutableArray<QuestContentDefinition> quests,
         ImmutableArray<CharacterContentDefinition> characters,
-        ImmutableArray<IncidentContentDefinition> incidents)
+        ImmutableArray<IncidentContentDefinition> incidents,
+        ImmutableArray<PatternContentDefinition> patterns)
     {
         var text = new StringBuilder().AppendLine("schema|1");
         foreach (var item in industries) text.AppendLine($"industry|{item.Id}|{Encode(item.DisplayName)}");
@@ -702,6 +738,8 @@ public static partial class ContentCompilerV1
         }
         foreach (var item in incidents)
             text.AppendLine($"incident|{item.Id}|{item.Industry}|{Encode(item.DisplayName)}|{item.TriggerAt.Value}|{item.Scope}|{Encode(item.Observable)}|{Encode(item.Evidence)}|{Encode(item.Recovery)}|{IncidentEffect(item.Effect)}");
+        foreach (var item in patterns)
+            text.AppendLine($"pattern|{item.Id}|{item.Catalog}|{item.Category}|{item.ExternalCatalogId}|{Encode(item.PreNameTitle)}|{string.Join(',', item.ProblemSignatures)}|{item.MinimumEvidence}|{item.RequiresApplication}|{Join(item.PrimaryEncounters)}");
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())));
     }
 
@@ -732,6 +770,11 @@ public static partial class ContentCompilerV1
         DishKind.Glass => "glass",
         DishKind.Tray => "tray",
         _ => throw new ArgumentOutOfRangeException(nameof(value)),
+    };
+    private static PatternProblemSignature PatternProblemSignatureFromToken(string token) => token switch
+    {
+        "interchangeable-policy" => PatternProblemSignature.InterchangeablePolicy,
+        _ => throw new ArgumentOutOfRangeException(nameof(token)),
     };
     private static string KnowledgeToken(DishProcessSpecification value) => value switch
     {
@@ -943,6 +986,7 @@ public static partial class ContentCompilerV1
         public List<RawQuest> Quests { get; set; } = [];
         public List<RawCharacter> Characters { get; set; } = [];
         public List<RawIncident> Incidents { get; set; } = [];
+        public List<RawPattern> Patterns { get; set; } = [];
     }
     private sealed class RawIndustry : RawDefinition { public string? DisplayName { get; set; } }
     private sealed class RawFacility : RawDefinition { public string? Industry { get; set; } public string? DisplayName { get; set; } public List<string> Workstations { get; set; } = []; }
@@ -1103,6 +1147,21 @@ public static partial class ContentCompilerV1
         public RawBlockedResourceIncident? BlockedResource { get; set; }
         public RawWorkerAbsenceIncident? WorkerAbsence { get; set; }
         public RawDemandSpikeIncident? DemandSpike { get; set; }
+    }
+    private sealed class RawPattern : RawDefinition
+    {
+        public string? Catalog { get; set; }
+        public string? Category { get; set; }
+        public string? ExternalCatalogId { get; set; }
+        public string? PreNameTitle { get; set; }
+        public List<string> ProblemSignatures { get; set; } = [];
+        public RawPatternRecognition? Recognition { get; set; }
+        public List<string> PrimaryEncounters { get; set; } = [];
+    }
+    private sealed class RawPatternRecognition
+    {
+        public int? MinimumEvidence { get; set; }
+        public bool RequiresApplication { get; set; }
     }
     private sealed class RawProcessDelayIncident { public int? DurationTicks { get; set; } public int? AddedCycleTicks { get; set; } }
     private sealed class RawCapacityLossIncident { public int? DurationTicks { get; set; } public int? LostSlots { get; set; } }

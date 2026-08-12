@@ -31,6 +31,7 @@ public enum ContentDefinitionKind
     Quest,
     Character,
     Incident,
+    Pattern,
 }
 
 public sealed record IndustryContentDefinition(ContentId Id, string DisplayName);
@@ -180,6 +181,20 @@ public sealed record IncidentContentDefinition(
     string Recovery,
     DishStationIncidentEffect Effect);
 
+public sealed record PatternContentDefinition(
+    ContentId Id,
+    string Catalog,
+    string Category,
+    string ExternalCatalogId,
+    string PreNameTitle,
+    ImmutableArray<PatternProblemSignature> ProblemSignatures,
+    int MinimumEvidence,
+    bool RequiresApplication,
+    ImmutableArray<ContentId> PrimaryEncounters)
+{
+    public PatternId PatternId => new(Id.Value);
+}
+
 public static class DishStationIncidentContentAdapter
 {
     public static ScheduledDishStationIncident ToSchedule(IncidentContentDefinition definition)
@@ -211,6 +226,7 @@ public sealed record CompiledContentCatalogV1(
     ImmutableArray<QuestContentDefinition> Quests,
     ImmutableArray<CharacterContentDefinition> Characters,
     ImmutableArray<IncidentContentDefinition> Incidents,
+    ImmutableArray<PatternContentDefinition> Patterns,
     ContentManifestV1 Manifest);
 
 public sealed record ContentDiagnostic(string Source, string Path, string Message, int? Line = null, int? Column = null)

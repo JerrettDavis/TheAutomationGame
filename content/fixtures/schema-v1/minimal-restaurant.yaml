@@ -80,3 +80,15 @@ incidents:
       duration_ticks: 3
       demand_kind: plate
       interval_ticks: 1
+
+patterns:
+  - id: pattern.strategy
+    catalog: gof
+    category: behavioral
+    external_catalog_id: strategy
+    pre_name_title: REUSABLE POLICY CHOICE
+    problem_signatures: [interchangeable-policy]
+    recognition:
+      minimum_evidence: 2
+      requires_application: true
+    primary_encounters: [quest.restaurant.schema-proof.restore-service]

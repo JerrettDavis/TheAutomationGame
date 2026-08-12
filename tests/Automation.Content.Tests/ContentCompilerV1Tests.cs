@@ -4,7 +4,7 @@ namespace Automation.Content.Tests;
 
 public sealed class ContentCompilerV1Tests
 {
-    private const string ExpectedHash = "947cf1d85ff60b1f44a3457c8cd28dc54f53e5aad88c2de7ffb0be7929b3c2cf";
+    private const string ExpectedHash = "1b4fc95b391a03b5641acd2f1e6cd81ea3c1f9422b79b761d13dd7f6018725d3";
 
     [Fact]
     public void MinimalRestaurantFixtureCompilesAllV1KindsToDeterministicImmutableCatalog()
@@ -14,7 +14,7 @@ public sealed class ContentCompilerV1Tests
         var second = ContentCompilerV1.Compile(File.ReadAllText(path), "copy.yaml");
 
         Assert.Equal(1, first.Manifest.SchemaVersion);
-        Assert.Equal(9, first.Manifest.DefinitionCount);
+        Assert.Equal(10, first.Manifest.DefinitionCount);
         Assert.All(Enum.GetValues<ContentDefinitionKind>(), kind => Assert.Equal(1, first.Manifest.Counts[kind]));
         Assert.Single(first.Industries);
         Assert.Single(first.Facilities);
@@ -25,6 +25,7 @@ public sealed class ContentCompilerV1Tests
         Assert.Single(first.Quests);
         Assert.Single(first.Characters);
         Assert.Single(first.Incidents);
+        Assert.Single(first.Patterns);
         Assert.Equal(ExpectedHash, first.Manifest.Sha256);
         Assert.Equal(first.Manifest.Sha256, second.Manifest.Sha256);
         Assert.Equal(first.Manifest.Counts.OrderBy(pair => pair.Key), second.Manifest.Counts.OrderBy(pair => pair.Key));

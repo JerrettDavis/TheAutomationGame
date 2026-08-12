@@ -496,3 +496,15 @@ quests:
           text: CHANGE THE PATIO POLICY IN THE SAME DECISION SLOT
         - id: rerun-two-stations
           text: RERUN BOTH STATIONS AND COMPARE THE SERVICE RESULT
+
+patterns:
+  - id: pattern.strategy
+    catalog: gof
+    category: behavioral
+    external_catalog_id: strategy
+    pre_name_title: REUSABLE ROUTING CHOICE
+    problem_signatures: [interchangeable-policy]
+    recognition:
+      minimum_evidence: 2
+      requires_application: true
+    primary_encounters: [quest.restaurant.two-stations.one-problem]

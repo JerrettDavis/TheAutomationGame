@@ -5,8 +5,8 @@ namespace Automation.Content.Tests;
 
 public sealed class ProductionContentValidationTests
 {
-    private const string MinimalHash = "947cf1d85ff60b1f44a3457c8cd28dc54f53e5aad88c2de7ffb0be7929b3c2cf";
-    private const string FirstShiftHash = "33d12d1f5612c3140d6e5bcf76ec6e6fc01ca4182efe0abf413dc972e2e0df64";
+    private const string MinimalHash = "1b4fc95b391a03b5641acd2f1e6cd81ea3c1f9422b79b761d13dd7f6018725d3";
+    private const string FirstShiftHash = "0caeb0b816375a197d23078f158b3c3c1166aea4e8e07636e02dafb2a1fd5a99";
 
     [Fact]
     public void EveryCheckedInValidBundleCompilesToItsDeterministicManifest()

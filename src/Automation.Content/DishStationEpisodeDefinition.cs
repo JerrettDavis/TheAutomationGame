@@ -210,3 +210,11 @@ public static class DishStationTwoStationsContent
     public static QuestContentDefinition Quest { get; } = DishStationFirstHoursContent.Catalog.Quests
         .Single(quest => quest.Id.Value == QuestId);
 }
+
+public static class DishStationPatternContent
+{
+    public const string StrategyId = "pattern.strategy";
+
+    public static PatternContentDefinition Strategy { get; } = DishStationFirstHoursContent.Catalog.Patterns
+        .Single(pattern => pattern.Id.Value == StrategyId);
+}
