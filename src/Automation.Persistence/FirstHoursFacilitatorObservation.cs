@@ -44,6 +44,7 @@ public sealed record FirstHoursFacilitatorObservation(
         if (SchemaVersion != CurrentSchemaVersion)
             throw new NotSupportedException($"Facilitator observation schema {SchemaVersion} is not supported.");
         ArgumentException.ThrowIfNullOrWhiteSpace(SessionId);
+        if (RecordedAtUtc == default) throw new InvalidDataException("Facilitator observation requires a recorded UTC timestamp.");
         ArgumentNullException.ThrowIfNull(CriticalIssues);
         if (!Enum.IsDefined(ParticipantKind)) throw new InvalidDataException($"Unknown participant kind {ParticipantKind}.");
 

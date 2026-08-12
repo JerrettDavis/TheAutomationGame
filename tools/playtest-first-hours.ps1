@@ -28,17 +28,27 @@ $debrief = @"
 
 - Player background / vocabulary familiarity:
 - Guidance and accessibility choices:
+- Movement discovery (first attempt, coaching if any):
+- Contextual interaction discovery (first attempt, coaching if any):
 - Facilitator interventions (time, blocker, exact help):
 - Attempts or retries:
 - Observed blockers:
+- Ignored UI / false assumptions:
+- Predictions before consequential actions:
 
 ## Debrief
 
 1. What constrained glass service, and which observed evidence supported that conclusion?
-2. Which unwritten assumptions failed under delegation or automation?
+2. What did the panel say was true during the incident, and what was physically true?
 3. Why were the captured replay and live reliability window stronger evidence than another happy-path run?
+4. Would you trust the revised system during another rush? Why?
+5. Before the Codex name reveal: what stayed the same, and what changed between the two stations?
 
-- Causally supported answers (0-3):
+- Meaningful bottleneck identified causally:
+- Reported-versus-physical readiness understood:
+- Replay/proof value articulated:
+- Strategy shape expressed in ordinary language before naming:
+- Critical UI/accessibility issues (code, summary, owner, fixed/backlog):
 - Additional observations:
 "@
 [System.IO.File]::WriteAllText($debriefPath, $debrief)
@@ -83,24 +93,57 @@ if (-not $NonInteractive) {
     }
 
     $vocabularyNovice = Read-YesNo "Was the player unfamiliar with the intended systems/programming vocabulary?"
+    $movementDiscovered = Read-YesNo "Did the player discover movement without coaching?"
+    $interactionDiscovered = Read-YesNo "Did the player discover contextual interaction without coaching?"
+    $bottleneckIdentified = Read-YesNo "Did the player causally identify a meaningful bottleneck?"
+    $readinessUnderstood = Read-YesNo "Did the player explain reported versus physical readiness?"
+    $replayValue = Read-YesNo "Did the player articulate why replay/proof matters?"
+    $strategyExpressed = Read-YesNo "Before naming, did the player express the stable decision slot and swappable routing choices?"
     $actionDirectedHelp = Read-YesNo "Did the facilitator tell the player which consequential action to take?"
+    $primaryBlockerText = (Read-Host "Primary progression blocker code, or leave blank for none").Trim()
+    $primaryBlocker = if ([string]::IsNullOrWhiteSpace($primaryBlockerText)) { $null } else { $primaryBlockerText }
     while ($true) {
-        $causalText = Read-Host "How many debrief answers were causally supported? [0-3]"
-        $causalAnswers = 0
-        if ([int]::TryParse($causalText, [ref]$causalAnswers) -and $causalAnswers -ge 0 -and $causalAnswers -le 3) { break }
-        Write-Warning "Enter a number from 0 through 3."
+        $issueCountText = Read-Host "How many critical UI/accessibility issues were observed? [0+]"
+        $issueCount = 0
+        if ([int]::TryParse($issueCountText, [ref]$issueCount) -and $issueCount -ge 0) { break }
+        Write-Warning "Enter zero or a positive whole number."
     }
-    $primaryBlocker = (Read-Host "Primary blocker code, or leave blank for none").Trim()
+    $criticalIssues = @()
+    for ($issueIndex = 1; $issueIndex -le $issueCount; $issueIndex++) {
+        do { $code = (Read-Host "Issue $issueIndex stable code").Trim() } while ([string]::IsNullOrWhiteSpace($code))
+        do { $summary = (Read-Host "Issue $issueIndex concise summary").Trim() } while ([string]::IsNullOrWhiteSpace($summary))
+        do { $owner = (Read-Host "Issue $issueIndex owner (team/backlog session)").Trim() } while ([string]::IsNullOrWhiteSpace($owner))
+        while ($true) {
+            $dispositionText = (Read-Host "Issue $issueIndex disposition [fixed/backlog]").Trim().ToLowerInvariant()
+            if ($dispositionText -in @("fixed", "backlog")) { break }
+            Write-Warning "Enter fixed or backlog."
+        }
+        $criticalIssues += [ordered]@{
+            code = $code
+            summary = $summary
+            owner = $owner
+            disposition = if ($dispositionText -eq "fixed") { "Fixed" } else { "Backlog" }
+        }
+    }
     $observation = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         sessionId = $sessionId
         recordedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
-        finalOutcomeComplete = (Test-Path -LiteralPath $evidencePath)
+        participantKind = "Human"
         vocabularyNovice = $vocabularyNovice
+        movementDiscoveredWithoutCoaching = $movementDiscovered
+        interactionDiscoveredWithoutCoaching = $interactionDiscovered
+        meaningfulBottleneckIdentifiedCausally = $bottleneckIdentified
+        reportedVsPhysicalReadinessUnderstood = $readinessUnderstood
+        replayProofValueArticulated = $replayValue
+        strategyExpressedBeforeNaming = $strategyExpressed
         actionDirectedFacilitatorHelp = $actionDirectedHelp
-        causalAnswers = $causalAnswers
-        primaryBlocker = $primaryBlocker
+        primaryProgressionBlocker = $primaryBlocker
+        criticalIssues = $criticalIssues
     }
-    [System.IO.File]::WriteAllText($observationPath, ($observation | ConvertTo-Json))
+    [System.IO.File]::WriteAllText($observationPath, ($observation | ConvertTo-Json -Depth 5))
     Write-Host "Structured observation: $observationPath"
+}
+else {
+    Write-Warning "NonInteractive mode does not create a facilitator observation. Complete it before cohort aggregation."
 }

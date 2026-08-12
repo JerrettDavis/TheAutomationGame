@@ -4,6 +4,41 @@ using Automation.Persistence;
 using Automation.Simulation;
 using Automation.Tools;
 
+var summarizeReadinessIndex = Array.FindIndex(args, argument =>
+    string.Equals(argument, "--summarize-first-hours", StringComparison.OrdinalIgnoreCase));
+if (summarizeReadinessIndex >= 0)
+{
+    if (summarizeReadinessIndex + 1 >= args.Length)
+    {
+        Console.Error.WriteLine("--summarize-first-hours requires a playtest root directory.");
+        Environment.ExitCode = 2;
+        return;
+    }
+    try
+    {
+        var sessions = FirstHoursReadinessCohort.LoadDirectory(args[summarizeReadinessIndex + 1]);
+        var report = FirstHoursReadinessEvaluator.Evaluate(sessions);
+        var outputIndex = Array.FindIndex(args, argument => string.Equals(argument, "--output", StringComparison.OrdinalIgnoreCase));
+        if (outputIndex >= 0)
+        {
+            if (outputIndex + 1 >= args.Length) throw new ArgumentException("--output requires a Markdown file path.");
+            FirstHoursReadinessEvaluator.SaveMarkdownAtomic(args[outputIndex + 1], report);
+        }
+        Console.WriteLine($"readiness gate={(report.GatePassed ? "PASS" : "NOT_READY")} human={report.HumanSessions} synthetic={report.SyntheticFixtures}");
+        foreach (var criterion in report.Criteria)
+            Console.WriteLine($"criterion id={criterion.Id} status={criterion.Status.ToString().ToUpperInvariant()} observed={criterion.Observed}");
+        if (outputIndex >= 0) Console.WriteLine($"report={Path.GetFullPath(args[outputIndex + 1])}");
+        if (args.Contains("--require-pass", StringComparer.OrdinalIgnoreCase) && !report.GatePassed) Environment.ExitCode = 1;
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or
+                                      NotSupportedException or ArgumentException)
+    {
+        Console.Error.WriteLine($"readiness: {exception.Message}");
+        Environment.ExitCode = 2;
+    }
+    return;
+}
+
 var expandTemplateIndex = Array.FindIndex(args, argument => string.Equals(argument, "--expand-template", StringComparison.OrdinalIgnoreCase));
 if (expandTemplateIndex >= 0)
 {

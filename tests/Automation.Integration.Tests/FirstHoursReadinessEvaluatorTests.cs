@@ -180,5 +180,7 @@ public sealed class FirstHoursReadinessEvaluatorTests
             new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero),
             new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero).AddMinutes(wallMinutes),
             wallMinutes * 60, new OnboardingSnapshot(true, guidance), 7, 3400, 600,
-            [], default, default, []);
+            Enum.GetValues<DishStationQuestId>().Select(quest => new DishStationQuestProgress(quest, true, 100, 1, 2, 1)).ToArray(),
+            new ShiftTrialSnapshot(ShiftTrialStatus.Passed, 3, 3, 1, 1, 2),
+            new ShiftReportSnapshot(true, 2, 1, 0, 22, 10, 10, 1, 0, 1, 0, 1, default), []);
 }

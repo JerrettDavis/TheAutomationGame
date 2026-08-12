@@ -88,6 +88,12 @@ public static class FirstHoursReadinessEvaluator
             if (session.CompletionEvidence is not null &&
                 !string.Equals(session.Observation.SessionId, session.CompletionEvidence.SessionId, StringComparison.Ordinal))
                 throw new InvalidDataException($"Session '{session.Observation.SessionId}' has mismatched completion evidence.");
+            if (session.CompletionEvidence is { } evidence &&
+                (!evidence.Onboarding.Complete || !evidence.ShiftReport.Available ||
+                 evidence.ShiftTrial.Status != Automation.Simulation.ShiftTrialStatus.Passed ||
+                 evidence.Quests.Length == 0 || evidence.Quests.Any(quest => !quest.Complete) ||
+                 evidence.WallClockSeconds < 0))
+                throw new InvalidDataException($"Session '{session.Observation.SessionId}' has incomplete or invalid first-hours completion evidence.");
         }
 
         var human = all.Where(session => session.Observation.ParticipantKind == FirstHoursParticipantKind.Human).ToArray();
@@ -120,7 +126,7 @@ public static class FirstHoursReadinessEvaluator
 
         var criteria = new List<FirstHoursReadinessCriterion>
         {
-            Criterion("sample", $"At least {MinimumHumanSessions} human sessions", $"{human.Length} human; {all.Length - human.Length} automated fixture", enough, enough),
+            Criterion("sample", $"At least {MinimumHumanSessions} human sessions", $"{human.Length} human; {all.Length - human.Length} synthetic fixture", enough, enough),
             Criterion("novice-representation", $"At least {MinimumVocabularyNovices} vocabulary novices", $"{novices}/{human.Length}", novices >= MinimumVocabularyNovices, enough),
             Criterion("guidance-coverage", "Guided and Contextual each represented", $"Guided {guided}; Contextual {contextual}", guided >= 1 && contextual >= 1, enough),
             Criterion("unassisted-completion", "At least 80% complete without action-directed help", $"{completedWithoutHelp}/{human.Length}; need {required80}", completedWithoutHelp >= required80, enough),
@@ -140,7 +146,7 @@ public static class FirstHoursReadinessEvaluator
                 $"{criterion.Requirement}: {criterion.Observed}", "S035 study owner", criterion.Status.ToString().ToUpperInvariant()));
         foreach (var blocker in blockerGroups)
             followUps.Add(new(blocker.Count() > 1 ? 1 : 2, $"blocker:{blocker.Key}",
-                $"Observed in {blocker.Count()} human session(s).", "Unassigned until triage", blocker.Count() > 1 ? "REQUIRES FIX" : "MONITOR"));
+                $"Observed in {blocker.Count()} human session(s).", "S035 study owner", blocker.Count() > 1 ? "REQUIRES FIX" : "MONITOR"));
         foreach (var issue in human.SelectMany(session => session.Observation.CriticalIssues)
                      .GroupBy(issue => issue.Code, StringComparer.Ordinal)
                      .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal))
@@ -180,6 +186,16 @@ public static class FirstHoursReadinessEvaluator
             builder.AppendLine($"| `{Escape(session.Observation.SessionId)}` | {session.Observation.ParticipantKind} | {(evidence is null ? "No" : "Yes")} | {evidence?.Onboarding.GuidanceMode.ToString() ?? "—"} | {wall} | {(session.Observation.ActionDirectedFacilitatorHelp ? "Yes" : "No")} | {Escape(Normalize(session.Observation.PrimaryProgressionBlocker) ?? "None")} |");
         }
         builder.AppendLine();
+        builder.AppendLine("## Comprehension observations");
+        builder.AppendLine();
+        builder.AppendLine("| Session | Novice | Movement + interaction | Bottleneck | Readiness disagreement | Replay/proof | Strategy before name |");
+        builder.AppendLine("|---|---:|---:|---:|---:|---:|---:|");
+        foreach (var session in report.Sessions)
+        {
+            var observation = session.Observation;
+            builder.AppendLine($"| `{Escape(observation.SessionId)}` | {YesNo(observation.VocabularyNovice)} | {YesNo(observation.MovementDiscoveredWithoutCoaching && observation.InteractionDiscoveredWithoutCoaching)} | {YesNo(observation.MeaningfulBottleneckIdentifiedCausally)} | {YesNo(observation.ReportedVsPhysicalReadinessUnderstood)} | {YesNo(observation.ReplayProofValueArticulated)} | {YesNo(observation.StrategyExpressedBeforeNaming)} |");
+        }
+        builder.AppendLine();
         builder.AppendLine("## Prioritized follow-ups");
         builder.AppendLine();
         if (report.FollowUps.Count == 0) builder.AppendLine("No follow-up was generated from the recorded cohort.");
@@ -215,4 +231,6 @@ public static class FirstHoursReadinessEvaluator
 
     private static string Escape(string value) => value.Replace("|", "\\|", StringComparison.Ordinal)
         .Replace("\r", " ", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
+
+    private static string YesNo(bool value) => value ? "Yes" : "No";
 }
