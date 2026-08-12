@@ -251,7 +251,7 @@ Fresh-career human playtest (Windows):
 .\tools\playtest-first-hours.ps1 -PlayerId novice-01
 ```
 
-This launches the normal visible client with an isolated save under `artifacts/playtests/`. When the final quest completes, the client atomically emits objective onboarding, progression, quest, duration, per-stage handbook-use, reliability-window, and frozen scorecard evidence. After the window closes, the launcher records separate movement, interaction, bottleneck, reported/physical readiness, replay/proof, and pre-name Strategy judgments plus interventions, blockers, and owned critical issues. Add `-Windowed` only when the test setup requires a resizable window, or `-NonInteractive` when another study system will write a schema-v2 facilitator observation.
+This launches the normal visible client with an isolated save under `artifacts/playtests/`. When the final quest completes, the client atomically emits objective onboarding, progression, quest, duration, per-stage handbook-use, reliability-window, and frozen scorecard evidence. After the window closes, the launcher records separate movement, interaction, bottleneck, reported/physical readiness, replay/proof, and pre-name Strategy judgments plus guidance mode, interventions, blockers, and owned critical issues. Add `-Windowed` only when the test setup requires a resizable window, or `-NonInteractive` when another study system will write a schema-v3 facilitator observation.
 
 After multiple sessions, summarize the formative gate with:
 
@@ -260,6 +260,8 @@ After multiple sessions, summarize the formative gate with:
 ```
 
 The summarizer validates observation/completion identity and writes `artifacts/playtests/readiness-report.md`. It evaluates every fixed N5 threshold, lists per-session comprehension observations, and prioritizes recurring blockers and owned critical issues. Synthetic test fixtures are explicitly excluded from human counts. The formative first-shift duration envelope is fixed at 45–120 wall-clock minutes before collection.
+
+The reviewed repository aggregate is [the S035 restaurant human-readiness report](docs/48_RESTAURANT_HUMAN_READINESS_REPORT.md). It remains `NOT READY` until actual de-identified human observations replace the empty-cohort state; native smoke or synthetic fixtures cannot change that status.
 
 ## Project rule
 

@@ -53,6 +53,10 @@ $debrief = @"
 "@
 [System.IO.File]::WriteAllText($debriefPath, $debrief)
 
+Write-Host "Facilitator protocol: observe without directing consequential actions; record exact interventions in $debriefPath"
+Write-Host "After Own the Shift, continue to Two Stations. Ask the ordinary-language comparison question before the Codex name reveal."
+Write-Host "Close the client only after the post-shift comparison/debrief is complete."
+
 $priorSave = [Environment]::GetEnvironmentVariable("AUTOMATION_SAVE_PATH", "Process")
 $priorEvidence = [Environment]::GetEnvironmentVariable("AUTOMATION_PLAYTEST_EVIDENCE_PATH", "Process")
 $priorSession = [Environment]::GetEnvironmentVariable("AUTOMATION_PLAYTEST_SESSION_ID", "Process")

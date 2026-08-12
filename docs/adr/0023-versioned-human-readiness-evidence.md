@@ -9,7 +9,7 @@ Native smoke and deterministic scenarios prove reachability and correctness, but
 
 ## Decision
 
-Keep objective first-shift completion evidence and facilitator judgments as separate versioned DTOs joined by anonymous session ID. Schema-v2 facilitator observations independently record movement, interaction, bottleneck, reported-versus-physical readiness, replay/proof value, pre-name Strategy expression, directed help, blocker code, and owned critical UI/accessibility issues.
+Keep objective first-shift completion evidence and facilitator judgments as separate versioned DTOs joined by anonymous session ID. Schema-v3 facilitator observations independently record selected guidance mode, movement, interaction, bottleneck, reported-versus-physical readiness, replay/proof value, pre-name Strategy expression, directed help, blocker code, and owned critical UI/accessibility issues. Completed sessions must agree with objective guidance evidence; incomplete sessions retain the facilitator-recorded choice.
 
 Evaluate every recorded human session against the precommitted S035 cohort contract in `20_TESTING_VALIDATION_PERFORMANCE.md`. A `SyntheticFixture` participant kind exists only to validate ingestion and reporting and is excluded from every human threshold. Reject missing/mismatched identity, unsupported schema, incomplete claimed completion, duplicate/unowned issues, or unstructured session directories. Write the complete criteria/session/follow-up result as deterministic Markdown.
 

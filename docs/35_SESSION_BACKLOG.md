@@ -836,17 +836,17 @@ N4 Player Tools is complete through process capture/editing, restricted automati
 **Preparation delivered:**
 
 - Fixed the research episode and cohort contract before collection: five human sessions, two vocabulary novices, Guided/Contextual coverage, independent 80% comprehension thresholds, 60% pre-name Strategy expression, blocker recurrence, owned critical issues, and a 45–120 minute formative first-shift envelope.
-- Replaced the composite causal-answer prompt with schema-v2 facilitator observations for movement, contextual interaction, bottleneck, reported/physical readiness, replay/proof, Strategy-before-name, directed help, blocker code, and owned `Fixed`/`Backlog` issues.
+- Replaced the composite causal-answer prompt with schema-v3 facilitator observations for guidance mode, movement, contextual interaction, bottleneck, reported/physical readiness, replay/proof, Strategy-before-name, directed help, blocker code, and owned `Fixed`/`Backlog` issues.
 - Added strict atomic observation persistence and cohort ingestion. Missing observations, unsupported versions, directory/observation/completion ID disagreement, incomplete claimed completion, duplicate issues, and unowned issues fail with actionable errors.
 - Added the fixed-threshold evaluator, deterministic Markdown report, `Automation.Headless --summarize-first-hours`, and the updated PowerShell launcher/summarizer. Reports include every criterion, objective session durations/guidance/completion, per-session comprehension, and prioritized blocker/issue follow-ups.
-- Added `SyntheticFixture` provenance. Seven focused tests prove pass/fail boundaries, recurring friction priority, schema round-trip/rejection, directory rejection, deterministic report output, and full synthetic directory round-trip while proving even a perfect synthetic cohort counts as zero humans.
+- Added `SyntheticFixture` provenance. Eight focused tests prove pass/fail boundaries, recurring friction priority, schema round-trip/rejection, exact completion/guidance integrity, conflicting issue-owner rejection, directory rejection, deterministic report output, and full synthetic directory round-trip while proving even a perfect synthetic cohort counts as zero humans.
 - ADR-0023 records why objective and facilitator evidence remain separate and why automated journeys cannot satisfy the gate.
 
 **Current gate evidence:**
 
-- Human sessions: **0/5 — PENDING**. No real session artifact exists under the workspace playtest root, so S035 is not complete and the restaurant chapter is not yet declared internally human-ready.
+- Human sessions: **0/5 — PENDING**. The checked-in [readiness report](48_RESTAURANT_HUMAN_READINESS_REPORT.md) records all twelve criteria as pending. No real session artifact exists under the workspace playtest root, so S035 is not complete and the restaurant chapter is not yet declared internally human-ready.
 - Empty-cohort CLI/script run produced `NOT_READY` with all twelve criteria `PENDING`; this validates failure-safe reporting, not comprehension.
-- Release build passed with 0 warnings/errors. Full suite passed 323/323: Content 65, Domain 33, Simulation 61, Integration 164.
+- Release build passed with 0 warnings/errors. Full suite passed 324/324: Content 65, Domain 33, Simulation 61, Integration 165. Empty-cohort `--require-pass` correctly exited nonzero with all criteria pending.
 
 ---
 
