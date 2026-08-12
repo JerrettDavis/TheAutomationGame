@@ -823,7 +823,7 @@ N4 Player Tools is complete through process capture/editing, restricted automati
 - Full Release suite passed 316/316: Content 65, Domain 33, Simulation 61, Integration 157.
 - Native Release semantic smoke completed `EpisodeComplete`, passed the 3/3 live reliability window, resumed the level-7 career, and reported `[room=native] [assets=alpha] [audio=ready]`. The inspected [approved-alpha running frame](screenshots/first-shift/restaurant-approved-alpha.png) shows the polished room, equipment silhouettes, player, washer `RUN` state, and visible running-audio caption; the inspected [Devon incident frame](screenshots/first-shift/shift-window-running.png) shows the named-cast badge and critical response without clipping. The [Sam vendor frame](screenshots/first-shift/vendor-comparison.png) also retains a clean badge/header layout.
 
-### S035 — Restaurant Human Readiness Gate — TODO
+### S035 — Restaurant Human Readiness Gate — IN PROGRESS
 
 **Class:** PLAYTEST
 
@@ -832,6 +832,21 @@ N4 Player Tools is complete through process capture/editing, restricted automati
 **Deliver:** run at least five first-hours sessions using `43_QUALITY_PLAYTEST_RELEASE_GATES.md`; aggregate observed friction and comprehension.
 
 **Proof:** evidence report with pass/fail per readiness criterion and prioritized follow-up sessions.
+
+**Preparation delivered:**
+
+- Fixed the research episode and cohort contract before collection: five human sessions, two vocabulary novices, Guided/Contextual coverage, independent 80% comprehension thresholds, 60% pre-name Strategy expression, blocker recurrence, owned critical issues, and a 45–120 minute formative first-shift envelope.
+- Replaced the composite causal-answer prompt with schema-v2 facilitator observations for movement, contextual interaction, bottleneck, reported/physical readiness, replay/proof, Strategy-before-name, directed help, blocker code, and owned `Fixed`/`Backlog` issues.
+- Added strict atomic observation persistence and cohort ingestion. Missing observations, unsupported versions, directory/observation/completion ID disagreement, incomplete claimed completion, duplicate issues, and unowned issues fail with actionable errors.
+- Added the fixed-threshold evaluator, deterministic Markdown report, `Automation.Headless --summarize-first-hours`, and the updated PowerShell launcher/summarizer. Reports include every criterion, objective session durations/guidance/completion, per-session comprehension, and prioritized blocker/issue follow-ups.
+- Added `SyntheticFixture` provenance. Seven focused tests prove pass/fail boundaries, recurring friction priority, schema round-trip/rejection, directory rejection, deterministic report output, and full synthetic directory round-trip while proving even a perfect synthetic cohort counts as zero humans.
+- ADR-0023 records why objective and facilitator evidence remain separate and why automated journeys cannot satisfy the gate.
+
+**Current gate evidence:**
+
+- Human sessions: **0/5 — PENDING**. No real session artifact exists under the workspace playtest root, so S035 is not complete and the restaurant chapter is not yet declared internally human-ready.
+- Empty-cohort CLI/script run produced `NOT_READY` with all twelve criteria `PENDING`; this validates failure-safe reporting, not comprehension.
+- Release build passed with 0 warnings/errors. Full suite passed 323/323: Content 65, Domain 33, Simulation 61, Integration 164.
 
 ---
 

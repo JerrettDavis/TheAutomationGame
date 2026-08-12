@@ -127,6 +127,41 @@ public sealed class FirstHoursReadinessEvaluatorTests
     }
 
     [Fact]
+    public void SyntheticCohortRoundTripsThroughDirectoriesWithoutPassingHumanGate()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"automation-readiness-synthetic-{Guid.NewGuid():N}");
+        try
+        {
+            for (var index = 1; index <= 5; index++)
+            {
+                var id = $"synthetic-{index}";
+                var directory = Path.Combine(root, id);
+                FirstHoursFacilitatorObservationStore.SaveFileAtomic(
+                    Path.Combine(directory, "facilitator-observation.json"),
+                    Observation(id, FirstHoursParticipantKind.SyntheticFixture, true, true, true));
+                FirstHoursPlaytestEvidenceStore.SaveFileAtomic(
+                    Path.Combine(directory, "first-hours-evidence.json"),
+                    Evidence(id, index == 1 ? GuidanceMode.Contextual : GuidanceMode.Guided, 60));
+            }
+
+            var loaded = FirstHoursReadinessCohort.LoadDirectory(root);
+            var report = FirstHoursReadinessEvaluator.Evaluate(loaded);
+            var reportPath = Path.Combine(root, "readiness-report.md");
+            FirstHoursReadinessEvaluator.SaveMarkdownAtomic(reportPath, report);
+
+            Assert.Equal(5, loaded.Count);
+            Assert.Equal(0, report.HumanSessions);
+            Assert.Equal(5, report.SyntheticFixtures);
+            Assert.False(report.GatePassed);
+            Assert.Contains("**Gate: NOT READY**", File.ReadAllText(reportPath), StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void MarkdownReportIsStableAndSavedAtomically()
     {
         var report = FirstHoursReadinessEvaluator.Evaluate([

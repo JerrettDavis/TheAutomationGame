@@ -351,7 +351,7 @@ Saved simulation state must not depend on transient asset paths.
 
 ### G-TEST-001: Automated correctness exists, comprehension evidence is weak — P0
 
-The product requires human first-hours playtests, not only UI automation.
+**Infrastructure resolved by S035; human evidence still open.** The product requires five human first-hours playtests, not only UI automation. The versioned launcher, observation validation, fixed thresholds, synthetic-fixture exclusion, deterministic evaluator, and durable report path are implemented, but no human session has yet been recorded in the repository workspace.
 
 Minimum questions:
 

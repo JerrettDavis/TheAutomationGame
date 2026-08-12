@@ -251,7 +251,7 @@ Fresh-career human playtest (Windows):
 .\tools\playtest-first-hours.ps1 -PlayerId novice-01
 ```
 
-This launches the normal visible client with an isolated save under `artifacts/playtests/`. When the final quest completes, the client atomically emits objective onboarding, progression, quest, duration, per-stage handbook-use, reliability-window, and frozen scorecard evidence. After the window closes, the launcher records the facilitator's vocabulary, intervention, causal-answer, and blocker judgments alongside the free-form debrief. Add `-Windowed` only when the test setup requires a resizable window, or `-NonInteractive` when another study system owns facilitator observations.
+This launches the normal visible client with an isolated save under `artifacts/playtests/`. When the final quest completes, the client atomically emits objective onboarding, progression, quest, duration, per-stage handbook-use, reliability-window, and frozen scorecard evidence. After the window closes, the launcher records separate movement, interaction, bottleneck, reported/physical readiness, replay/proof, and pre-name Strategy judgments plus interventions, blockers, and owned critical issues. Add `-Windowed` only when the test setup requires a resizable window, or `-NonInteractive` when another study system will write a schema-v2 facilitator observation.
 
 After multiple sessions, summarize the formative gate with:
 
@@ -259,7 +259,7 @@ After multiple sessions, summarize the formative gate with:
 .\tools\summarize-first-hours-playtests.ps1
 ```
 
-The summary reports completion, novice representation, action-directed assistance, causal answers, repeated blockers, wall/active duration, reliability attempts, and handbook use. Duration remains a study judgment because the intended first-hours wall-clock envelope has not yet been fixed to a numeric threshold.
+The summarizer validates observation/completion identity and writes `artifacts/playtests/readiness-report.md`. It evaluates every fixed N5 threshold, lists per-session comprehension observations, and prioritizes recurring blockers and owned critical issues. Synthetic test fixtures are explicitly excluded from human counts. The formative first-shift duration envelope is fixed at 45–120 wall-clock minutes before collection.
 
 ## Project rule
 

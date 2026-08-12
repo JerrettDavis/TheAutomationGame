@@ -152,17 +152,19 @@ No console/dev shortcut may be required.
 
 Minimum **five first-hours human sessions** before declaring the chapter internally ready.
 
-Pass criteria should include:
+The fixed first formative cohort includes at least two vocabulary novices, at least one Guided session, and at least one Contextual session. Pass criteria are:
 
 - at least 4/5 discover core movement/interaction without coaching;
+- at least 4/5 complete without action-directed facilitator help;
 - at least 4/5 correctly identify a meaningful bottleneck after observation;
 - at least 4/5 understand that reported readiness can disagree with reality after the incident;
 - at least 4/5 can articulate why replay/proof matters;
 - at least 3/5 independently express the Strategy concept in ordinary language before naming;
 - no recurring progression blocker;
-- critical UI/accessibility issues have fixes/backlog owners.
+- critical UI/accessibility issues have fixes/backlog owners;
+- at least 4/5 completed shifts fall inside the precommitted 45–120 wall-clock minute formative envelope.
 
-These thresholds are initial internal gates, not scientific claims. Adjust only after collecting evidence and record the change.
+For larger cohorts, the 80%/60% proportions apply to all recorded human sessions rather than a selected five. These thresholds are initial internal gates, not scientific claims. Adjust only after collecting evidence and record the change.
 
 ## N6 Gate — Warehouse Reuse Proof
 

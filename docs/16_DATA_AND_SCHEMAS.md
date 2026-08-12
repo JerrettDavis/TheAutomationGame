@@ -86,6 +86,8 @@ The dish-station replay journal serializes fixture placement and player movement
 
 The opt-in first-hours playtest evidence is a separate, explicit JSON DTO rather than a career checkpoint. Schema version 2 records anonymous session identity, UTC and active-simulation duration, onboarding choices, progression and quest snapshots, frozen reliability/report evidence, and concrete Shift Handbook open counts with first/last simulation ticks per tutorial stage. Handbook use is presentation telemetry and never enters the authoritative replay. The file is emitted atomically only after the final outcome; unsupported versions fail explicitly, and an export failure does not interrupt or replace the career save.
 
+S035 adds a separate schema-v2 facilitator observation beside that objective export. It records only an anonymous session ID, timestamp, `Human`/`SyntheticFixture` provenance, vocabulary cohort flag, independent boolean judgments for movement, interaction, bottleneck, reported/physical readiness, replay/proof, and pre-name Strategy expression, action-directed help, an optional stable blocker code, and critical issues with owner plus `Fixed`/`Backlog` disposition. Validation rejects missing identity/timestamp, unsupported versions, duplicate or unowned issues, and unknown enum values. Aggregation also rejects a directory/observation/completion session mismatch or completion evidence that does not prove onboarding, all quest outcomes, a passed reliability window, and an available report. Neither research DTO is a career save or replay input.
+
 ## Schema evolution
 
 Every persistent format must define:
