@@ -232,13 +232,13 @@ public static class AutomationRuleEvaluator
         AutomationValueRef? value,
         string path,
         List<AutomationIrDiagnostic> diagnostics) => value switch
-    {
-        AutomationBooleanConstant => AutomationValueKind.Boolean,
-        AutomationIntegerConstant => AutomationValueKind.Integer,
-        AutomationObservableRef { Observable: AutomationObservable.RackCount } => AutomationValueKind.Integer,
-        AutomationObservableRef { Observable: AutomationObservable.RackPresent or AutomationObservable.ReportedReady or AutomationObservable.PhysicalReady } => AutomationValueKind.Boolean,
-        _ => AddUnknown(path, diagnostics),
-    };
+        {
+            AutomationBooleanConstant => AutomationValueKind.Boolean,
+            AutomationIntegerConstant => AutomationValueKind.Integer,
+            AutomationObservableRef { Observable: AutomationObservable.RackCount } => AutomationValueKind.Integer,
+            AutomationObservableRef { Observable: AutomationObservable.RackPresent or AutomationObservable.ReportedReady or AutomationObservable.PhysicalReady } => AutomationValueKind.Boolean,
+            _ => AddUnknown(path, diagnostics),
+        };
 
     private static bool EvaluateCondition(
         AutomationCondition condition,

@@ -371,8 +371,16 @@ public sealed class InputBindingProfile
 
     private static string DisplayName(KeyboardKey key) => key switch
     {
-        KeyboardKey.Digit1 => "1", KeyboardKey.Digit2 => "2", KeyboardKey.Digit3 => "3",
-        KeyboardKey.Digit4 => "4", KeyboardKey.Digit5 => "5", KeyboardKey.Digit6 => "6", KeyboardKey.Digit7 => "7", KeyboardKey.Digit8 => "8", KeyboardKey.Digit9 => "9", KeyboardKey.Backspace => "BACKSPACE",
+        KeyboardKey.Digit1 => "1",
+        KeyboardKey.Digit2 => "2",
+        KeyboardKey.Digit3 => "3",
+        KeyboardKey.Digit4 => "4",
+        KeyboardKey.Digit5 => "5",
+        KeyboardKey.Digit6 => "6",
+        KeyboardKey.Digit7 => "7",
+        KeyboardKey.Digit8 => "8",
+        KeyboardKey.Digit9 => "9",
+        KeyboardKey.Backspace => "BACKSPACE",
         _ => key.ToString().ToUpperInvariant(),
     };
 }

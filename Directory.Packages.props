@@ -1,6 +1,7 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
@@ -14,5 +15,7 @@
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <!-- Transitive pin: SSH.NET 2023.0.1 (pulled in by Stride.Core.Assets.CompilerApp) has a known high-severity vulnerability (GHSA-q939-rpr3-3284), fixed in 2024.1.0+ -->
+    <PackageVersion Include="SSH.NET" Version="2026.0.0" />
   </ItemGroup>
 </Project>
