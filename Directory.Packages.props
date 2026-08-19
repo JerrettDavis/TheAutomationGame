@@ -5,16 +5,16 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageVersion Include="Stride.Engine" Version="4.3.0.2507" />
     <PackageVersion Include="Stride.Core.Assets.CompilerApp" Version="4.3.0.2507" />
-    <PackageVersion Include="Microsoft.Build.Tasks.Core" Version="17.14.28" />
-    <PackageVersion Include="NuGet.Packaging" Version="7.6.0" />
-    <PackageVersion Include="NuGet.Protocol" Version="7.6.0" />
-    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Build.Tasks.Core" Version="18.9.6" />
+    <PackageVersion Include="NuGet.Packaging" Version="7.9.0" />
+    <PackageVersion Include="NuGet.Protocol" Version="7.9.0" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.11" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
     <!-- Transitive pin: SSH.NET 2023.0.1 (pulled in by Stride.Core.Assets.CompilerApp) has a known high-severity vulnerability (GHSA-q939-rpr3-3284), fixed in 2024.1.0+ -->
     <PackageVersion Include="SSH.NET" Version="2026.0.0" />
   </ItemGroup>
