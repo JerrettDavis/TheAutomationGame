@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Stride.Engine 4.4.x needs a matching Stride.Core.Assets.CompilerApp, which is not
+    # published (latest 4.3.0.2507); the 4.3 compiler fails on 4.4 assets. Remove this
+    # ignore once a matching CompilerApp release exists.
+    ignore:
+      - dependency-name: "Stride.*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       nuget-dependencies:
         patterns:
