@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Stride 4.4 asset-constants generator emits a type per asset folder; Assets/imported is lower-case -> CS8981 (generated code, not ours) -->
+    <NoWarn>$(NoWarn);CS8981</NoWarn>
 </PropertyGroup>
 
   <ItemGroup>
